@@ -1,6 +1,6 @@
 # 三角洲独立悬浮工程
 
-当前参照：本地官方 `三角洲行动_1.201.37117（正版）.ipa`，版本 1.201.37117（68），进程 `DeltaForceClient`，游戏包名 `com.tencent.tmgp.dfm`。App 自身标识为 `com.local.sjz`，产品名 `SJZ Overlay`。
+当前参照：本地官方 `三角洲行动_1.201.37117（正版）.ipa`，版本 1.201.37117（68），进程 `DeltaForceClient`，游戏包名 `com.tencent.tmgp.dfm`。独立悬浮 App 的包名为 `com.lujun33333.sjz.overlay`，桌面名称为“三角洲悬浮”；它与王者 AX 的本地工程包名 `com.ax.ax` 不同。
 
 启动页 → laramgr 串行会话 → sjzmem 读取 → SJZCollector → sjzesp_item_t → SJZHUDBridge 前台 Metal / 后台 CoreAnimation。原平台初始化和悬浮窗托管保留；王者专用采集、技能、自动输入、头像下载、版本 profile 与卡密界面已移除。
 

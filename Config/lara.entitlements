@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>application-identifier</key>
-	<string>com.local.sjz</string>
+	<string>com.lujun33333.sjz.overlay</string>
 	<key>platform-application</key>
 	<true/>
 	<key>com.apple.QuartzCore.displayable-context</key>

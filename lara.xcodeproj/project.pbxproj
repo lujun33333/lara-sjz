@@ -476,7 +476,7 @@
 					-lcompression,
 					-lz,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.local.sjz;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lujun33333.sjz.overlay;
 				PRODUCT_NAME = "SJZ Overlay";
 				EXECUTABLE_NAME = "SJZ Overlay";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -525,7 +525,7 @@
 					-lcompression,
 					-lz,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.local.sjz;
+				PRODUCT_BUNDLE_IDENTIFIER = com.lujun33333.sjz.overlay;
 				PRODUCT_NAME = "SJZ Overlay";
 				EXECUTABLE_NAME = "SJZ Overlay";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

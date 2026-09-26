@@ -30,7 +30,7 @@ assert not (root/'lara/kexploit/wzesp.mm').exists()
 assert not (root/'scripts/build_ipa_wz.sh').exists()
 with (root/'lara/Info.plist').open('rb') as stream:
     info=plistlib.load(stream)
-assert info['CFBundleDisplayName']=='SJZ Overlay'
+assert info['CFBundleDisplayName']=='三角洲悬浮'
 project=(root/'lara.xcodeproj/project.pbxproj').read_text(encoding='utf-8')
-assert 'com.local.sjz' in project and 'SJZ Overlay' in project
+assert 'com.lujun33333.sjz.overlay' in project and 'SJZ Overlay' in project
 print('PASS: active source migration, target UUID binding, collector/HUD wiring, both renderers, Chinese font, product config')
