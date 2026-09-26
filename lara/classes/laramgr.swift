@@ -608,6 +608,7 @@ final class laramgr: ObservableObject {
             let valid=connected && base != 0 && self.sjzImageReadable(base)
             let transport=valid ? String(cString:sjz_transport_name()) : "none"
             let capabilities=valid ? sjz_transport_capabilities() : 0
+            let canWrite=valid && sjz_transport_can_write()
             if !valid { sjz_disconnect() }
             DispatchQueue.main.async {
                 guard epoch==self.sjzEpoch, !self.sjzTerminating, !self.sjzSceneDisconnecting else { return }
@@ -616,7 +617,7 @@ final class laramgr: ObservableObject {
                 self.sjzBase=valid ? base : 0
                 self.sjzTransportName=transport
                 self.sjzTransportCapabilities=capabilities
-                self.sjzCanWrite=valid && (capabilities & UInt64(SJZ_CAP_WRITE)) != 0
+                self.sjzCanWrite=canWrite
                 transport.withCString { sjzhud_set_transport_state(valid,self.sjzCanWrite,$0) }
                 if valid {
                     self.sjzStatus="已连接三角洲行动，等待对局"
