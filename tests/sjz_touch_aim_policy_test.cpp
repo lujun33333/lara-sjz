@@ -1,7 +1,23 @@
 #include "sjz/SJZTouchAimPolicy.h"
 #include <cassert>
 
+static float firstMoveX(float speed) {
+    SJZTouchAimPolicy policy;
+    SJZTouchObservation o{true,true,1,0x200000000,0x300000000,
+                          1000,500,500,505,250,0,0,speed};
+    assert(policy.tick(o).action==SJZTouchAction::Begin);
+    policy.complete(true);
+    assert(policy.tick(o).action==SJZTouchAction::Move);
+    policy.complete(true);o.yaw=.6f;
+    assert(policy.tick(o).action==SJZTouchAction::Move);
+    policy.complete(true);o.pitch=.6f;
+    const auto move=policy.tick(o);
+    assert(move.action==SJZTouchAction::Move);
+    return move.x;
+}
+
 int main() {
+    assert(firstMoveX(1.f)>firstMoveX(.5f)+4.f);
     SJZTouchAimPolicy policy;
     SJZTouchObservation o{true,false,1,0x200000000,0x300000000,
                           1000,500,500,650,250,0,0,.5f};

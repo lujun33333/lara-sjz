@@ -14,14 +14,23 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
-      - name: Build SJZ app
-        run: bash scripts/build_sjz.sh
+      - name: Build and package SJZ app
+        run: bash scripts/build_sjz.sh --package
       - name: Upload unsigned app
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: sjz-overlay-unsigned-app
           path: build/DerivedDataSJZ/Build/Products/Release-iphoneos/SJZ Overlay.app/
+          if-no-files-found: error
+      - name: Upload ad-hoc IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sjz-overlay-adhoc-ipa
+          path: |
+            build/SJZ-Overlay-*.ipa
+            build/SJZ-Overlay-*.ipa.sha256
           if-no-files-found: error
       - name: Upload build log
         if: always()

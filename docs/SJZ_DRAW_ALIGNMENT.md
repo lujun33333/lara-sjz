@@ -3,8 +3,10 @@
 ## 样本与证据范围
 
 - 目标：`三角洲行动-cn..ipa`，版本 `1.201.37117 (68)`；`Payload/DeltaForceClient.app/Frameworks/iTopDns_dylib` 的 ZIP CRC32 为 `0x6e4ce486`。
+- 这份含附加模块的包只用于静态菜单/绘制对照。实际运行目标是官方下载的 `三角洲行动_1.201.37117（正版）.ipa`；独立悬浮 App 不依赖该附加模块。两包主程序 UUID、大小和主要段布局相同，但官方包 `cryptid=1`，其世界根、相机与骨骼值仍须在官方进程验证。
 - 下表字符串地址均为该 Mach-O 的 VA，当前样本 `__TEXT` 文件偏移与 VA 相同。菜单段在 `0x384c2a` 起；`0x1f685c` 起的 ARM64 `ADRP/ADD` 将菜单标签及状态变量传给 UI。绘制路径的全局读取是独立证据，不等于运行效果。
 - 外部链：`SJZCollector` 通过 `OwnMemoryReader` 读主程序数据，发布 `sjzesp_item_t`；`SJZHUDBridge` 把快照变为前台 Metal、后台 CoreAnimation 共用的绘制命令。所有字段和偏移仅按此主程序 UUID/版本使用。
+- 真人 15 个 mesh 骨骼索引的来源仍是旧 `TCII 0906` 样本；当前官方版未独立确认各点的解剖位置。`READY` 或测试夹具通过不能替代官方进程的骨点投影验收。
 
 ## 菜单 → 数据 → 消费
 
