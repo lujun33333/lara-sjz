@@ -31,6 +31,7 @@ class Logger: ObservableObject {
     private var ogstderr: Int32 = -1
     private var logfileurl: URL?
     private var logfilehandle: FileHandle?
+    private let logfileQueue = DispatchQueue(label: "lara.logger.file", qos: .utility)
     private let nobullshitkey = "loggernobullshit"
     private let ignoredlogsubstrings = [
         "Faulty glyph",
@@ -184,16 +185,22 @@ class Logger: ObservableObject {
             self.lastmessage = nil
             self.repeatCount = 0
         }
-        if let url = logfileurl {
-            try? logfilehandle?.close()
-            try? "".write(to: url, atomically: true, encoding: .utf8)
-            logfilehandle = try? FileHandle(forWritingTo: url)
+        logfileQueue.sync {
+            if let url = logfileurl {
+                try? logfilehandle?.close()
+                try? "".write(to: url, atomically: true, encoding: .utf8)
+                logfilehandle = try? FileHandle(forWritingTo: url)
+            }
         }
+    }
+
+    func flushFile() {
+        logfileQueue.sync { try? logfilehandle?.synchronize() }
     }
 
     func capture() {
         if stdoutpipe != nil { return }
-        reopenlogfileondemand()
+        logfileQueue.sync { reopenlogfileondemand() }
 
         let pipe = Pipe()
         stdoutpipe = pipe
@@ -234,10 +241,12 @@ class Logger: ObservableObject {
         try? pipe.fileHandleForReading.close()
         stdoutpipe = nil
 
-        if let handle = logfilehandle {
-            try? handle.synchronize()
-            try? handle.close()
-            logfilehandle = nil
+        logfileQueue.sync {
+            if let handle = logfilehandle {
+                try? handle.synchronize()
+                try? handle.close()
+                logfilehandle = nil
+            }
         }
     }
 
@@ -334,13 +343,15 @@ class Logger: ObservableObject {
     }
 
     private func appendtofile(_ lines: [String]) {
-        guard let handle = logfilehandle else { return }
         let filtered = lines.filter { !shouldignore($0) }
         guard !filtered.isEmpty else { return }
         let text = filtered.joined(separator: "\n") + "\n"
         if let data = text.data(using: .utf8) {
-            try? handle.write(contentsOf: data)
-            try? handle.synchronize()
+            logfileQueue.async {
+                guard let handle = self.logfilehandle else { return }
+                try? handle.write(contentsOf: data)
+                try? handle.synchronize()
+            }
         }
     }
 }

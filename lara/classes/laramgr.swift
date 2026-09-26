@@ -758,6 +758,14 @@ final class laramgr: ObservableObject {
         let aimStatus=String(cString:sjzesp_last_aim_status())
         let aimEnabled=(config.flags & (1 << 11)) != 0
         let report=aimEnabled ? "\(status) · \(aimStatus)" : status
+        let frameNumber=sjzTickNumber
+        let sampleTime=Int64(Date().timeIntervalSince1970 * 1000)
+        if frameNumber % 12 == 0 {
+            let state="(sjz.frame) ms=\(sampleTime) tick=\(frameNumber) sample=\(stats.sampleGeneration) status=\(stats.status) stage=\(stats.stage) mask=\(stats.sampleMask) reads=\(stats.readFailures) actors=\(stats.actorCount) players=\(stats.playerCount) loot=\(stats.lootCount) published=\(count) viewport=\(stats.viewportWidth),\(stats.viewportHeight)"
+            let camera=" roots=\(stats.worldIdentity),\(stats.levelIdentity),\(stats.pawnIdentity) camera=\(stats.cameraX),\(stats.cameraY),\(stats.cameraZ),\(stats.cameraPitch),\(stats.cameraYaw),\(stats.cameraRoll),\(stats.cameraFov) local=\(stats.localX),\(stats.localY),\(stats.localZ)"
+            let target=" target=\(stats.firstTargetIdentity),\(stats.targetWorldX),\(stats.targetWorldY),\(stats.targetWorldZ),\(stats.targetScreenX),\(stats.targetScreenY),\(stats.targetDistance) aim=\(aimEnabled ? 1 : 0):\(aimStatus)"
+            globallogger.log(state+camera+target)
+        }
         DispatchQueue.main.async {
             guard epoch==self.sjzEpoch, self.sjzAttached else { return }
             items.withUnsafeBufferPointer { sjzhud_update_sjz_snapshot(count>0 ? $0.baseAddress : nil,Int32(count)) }

@@ -107,6 +107,28 @@ int main() {
     assert(std::string(output[0].name)=="测试玩家");
     assert(std::abs(output[0].x-500)<.01f && std::abs(output[0].distance-10)<.01f);
     assert(output[0].boneMask==0x7fff && output[0].health==100);
+    const auto firstSample=sjzesp_stats();
+    assert(firstSample.stage==SJZ_STAGE_NONE && firstSample.sampleMask==
+           (SJZ_SAMPLE_ROOTS|SJZ_SAMPLE_CAMERA|SJZ_SAMPLE_LOCAL|SJZ_SAMPLE_TARGET));
+    assert(firstSample.viewportWidth==1000 && firstSample.viewportHeight==500);
+    assert(firstSample.worldIdentity==world && firstSample.pawnIdentity==pawn);
+    assert(firstSample.cameraFov==90 && firstSample.localX==0);
+    assert(firstSample.firstTargetIdentity==actor && firstSample.targetWorldX==1000);
+    assert(firstSample.targetScreenX==output[0].x &&
+           std::abs(firstSample.targetScreenY-250)<.01f &&
+           firstSample.targetScreenY>output[0].top && firstSample.targetDistance==10);
+    m.put(component+0x1148,OwnVector3{100,0,0});
+    assert(collect()==1 && std::abs(sjzesp_stats().targetDistance-9)<.01f);
+    assert(sjzesp_stats().localX==100 && sjzesp_stats().sampleGeneration>firstSample.sampleGeneration);
+    m.put(component+0x1148,OwnVector3{});
+    m.put(component+0x148,OwnVector3{1000,200,0});
+    assert(collect()==1 && sjzesp_stats().targetWorldY==200);
+    const float shiftedX=sjzesp_stats().targetScreenX;
+    assert(shiftedX>500);
+    m.put(camera+0x1890+0x1c,60.f);
+    assert(collect()==1 && sjzesp_stats().cameraFov==60 && sjzesp_stats().targetScreenX>shiftedX);
+    m.put(camera+0x1890+0x1c,90.f);
+    m.put(component+0x148,OwnVector3{1000,0,0});
     config.flags=SJZ_SHOW_ESP|SJZ_SHOW_HEAD;
     assert(collect()==1 && (output[0].boneMask&0x3u)==0x3u);
     config.flags=SJZ_SHOW_HEAD;
@@ -145,9 +167,16 @@ int main() {
     m.put(healthData+0x3c,0.f); assert(collect()==1 && output[0].knocked);
     m.put(healthData+0x114,0.f); assert(collect()==0);
     m.put(healthData+0x3c,100.f); m.put(healthData+0x114,100.f);
-    m.fail=camera+0x1890; assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_CAMERA); m.fail=0;
+    m.fail=camera+0x1890;
+    assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_CAMERA &&
+           sjzesp_stats().stage==SJZ_STAGE_CAMERA &&
+           sjzesp_stats().sampleMask==SJZ_SAMPLE_ROOTS);
+    m.fail=0;
     m.changing=true; m.actorReads=0;
-    assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_SCENE_CHANGED);
+    assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_SCENE_CHANGED &&
+           sjzesp_stats().stage==SJZ_STAGE_ACTOR_RECHECK &&
+           !(sjzesp_stats().sampleMask&SJZ_SAMPLE_TARGET) &&
+           sjzesp_stats().firstTargetIdentity==0 && sjzesp_stats().targetDistance==0);
     m.changing=false;
     partial=true; assert(collect()==0 && sjzesp_stats().readFailures>0); partial=false;
     transportReady=false; assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_TRANSPORT); transportReady=true;

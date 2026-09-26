@@ -9,6 +9,7 @@ import SwiftUI
 
 struct LogsView: View {
     @ObservedObject var logger: Logger
+    @State private var sharingLog = false
     
     private let nobullshitkey = "loggernobullshit"
     let logsURL: URL = {
@@ -43,7 +44,10 @@ struct LogsView: View {
             .navigationTitle("日志")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    ShareLink(item: logsURL) {
+                    Button {
+                        logger.flushFile()
+                        sharingLog = true
+                    } label: {
                         Image(systemName: "square.and.arrow.up")
                     }
 
@@ -63,6 +67,19 @@ struct LogsView: View {
                     .foregroundColor(.red)
                 }
             }
+            .sheet(isPresented: $sharingLog) {
+                LogFileShareSheet(url: logsURL)
+            }
         }
     }
+}
+
+private struct LogFileShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
