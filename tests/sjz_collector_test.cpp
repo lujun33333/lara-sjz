@@ -46,14 +46,26 @@ constexpr uintptr_t base=0x100000000,world=0x200000000,driver=world+0x10000,
 Memory* activeMemory=nullptr;
 bool transportReady=true,transportCanWrite=false,partial=false;
 int aimWrites=0;
+int nativeWrites=0;
 bool aimWrite(void* context,uintptr_t address,const void* input,size_t size) {
     ++aimWrites;static_cast<Memory*>(context)->raw(address,input,size);return true;
 }
 extern "C" bool sjz_transport_ready(void) { return transportReady; }
 extern "C" bool sjz_transport_can_write(void) { return transportCanWrite; }
 extern "C" uint64_t sjz_session_generation(void) { return 1; }
-extern "C" uint64_t sjz_find_image_base(const uint8_t[16],uint32_t) { return base; }
-extern "C" long sjz_write(uint64_t,const void*,size_t) { return -1; }
+extern "C" uint64_t sjz_find_image_base(const uint8_t uuid[16],uint32_t type) {
+    static const uint8_t mainUUID[16]={0xe6,0x4c,0x78,0x9b,0x63,0xad,0x34,0xc9,
+                                       0xb2,0x2e,0xc2,0xbf,0xc3,0x69,0x3e,0x52};
+    static const uint8_t moduleUUID[16]={0x3c,0x4b,0xb5,0x19,0xbd,0x5d,0x3c,0xe2,
+                                         0xa4,0x4f,0x7f,0xeb,0xe8,0x09,0xa8,0xab};
+    return ((type==2 && !std::memcmp(uuid,mainUUID,16))||
+            (type==6 && !std::memcmp(uuid,moduleUUID,16))) ? base:0;
+}
+extern "C" long sjz_write(uint64_t address,const void* bytes,size_t size) {
+    if(!transportCanWrite) return -1;
+    ++nativeWrites;activeMemory->raw(address,bytes,size);
+    return static_cast<long>(size);
+}
 extern "C" long sjz_read(uint64_t address,void* out,size_t size) {
     if (!Memory::read(activeMemory,address,out,size)) return -1;
     return static_cast<long>(partial ? size-1 : size);
@@ -95,6 +107,13 @@ Memory fixture() {
     struct Transform { float q[4]; OwnVector3 p,s; } transform{{0,0,0,1},{1000,0,0},{1,1,1}};
     m.put(mesh+0x210,transform);
     for(auto index:kTCIIHumanDisplayMeshIndices) m.put(bones+size_t(index)*0x30+0x10,OwnVector3{0,0,float(index)});
+    const uint8_t menuSig[8]={0x41,0x58,0x00,0xf0,0x21,0xe0,0x2d,0x91};
+    const uint8_t consumeSig[8]={0xb6,0x57,0x00,0xd0,0xc8,0xe2,0x6d,0x39};
+    m.raw(base+0x1f6b94,menuSig,sizeof(menuSig));
+    m.raw(base+0x20b2b0,consumeSig,sizeof(consumeSig));
+    m.put(base+0xd01b78,uint8_t(0));m.put(base+0xc38390,int32_t(1));
+    m.put(base+0xc38394,.35f);m.put(base+0xc38398,120.f);
+    m.put(base+0xd01b7c,int32_t(0));
     m.mutate=level+0x98;
     return m;
 }
@@ -122,10 +141,15 @@ int main() {
     assert(std::string(sjzesp_last_aim_status())=="自瞄：当前传输只读");
     transportCanWrite=true;
     assert(collect()==1);
-    assert(std::string(sjzesp_last_aim_status())=="自瞄：当前版视角写入目标未证实，已停止写入");
+    assert(std::string(sjzesp_last_aim_status())=="自瞄：原生模块配置已读回，游戏效果待验");
+    uint8_t nativeEnabled=0;int32_t nativePart=-1;
+    assert(Memory::read(&m,base+0xd01b78,&nativeEnabled,1)&&nativeEnabled==1);
+    assert(Memory::read(&m,base+0xd01b7c,&nativePart,4)&&nativePart==1);
+    assert(nativeWrites>0);
     config.flags|=SJZ_AIM_VISIBLE_ONLY;
     assert(collect()==1);
     assert(std::string(sjzesp_last_aim_status())=="自瞄：真实视线查询不可用");
+    assert(Memory::read(&m,base+0xd01b78,&nativeEnabled,1)&&nativeEnabled==0);
     config.flags&=~SJZ_AIM_VISIBLE_ONLY;
     transportCanWrite=false;
     SJZAimAccess aimAccess{{&m,Memory::read},&m,aimWrite,nullptr};
