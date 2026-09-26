@@ -1,0 +1,34 @@
+Resources/*
+xcuserdata/
+*.xcuserstate
+.DS_Store
+
+# 出包产物与编译中间件
+build/
+*.ipa
+build_ipa.log
+*.xcarchive
+*.obj
+*.pdb
+.codex-tests/
+.codex-temp/
+artifacts/
+%TASK_OUT%/
+
+# 旧项目资源与构建用二进制不进入新的公开源码仓库
+OverwriteFiles/
+lara/AXReference.bundle/
+lara/lib/*.dylib
+lara/assets/lara.png
+lara.png
+source.json
+source_nightly.json
+tools/axdeob/
+
+# Python 辅助脚本的缓存
+__pycache__/
+*.pyc
+
+# macOS 压缩包残留
+__MACOSX/
+._*

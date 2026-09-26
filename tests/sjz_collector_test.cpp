@@ -1,0 +1,211 @@
+#include "SJZCollector.h"
+#include "SJZAim.h"
+#include "TCIISkeletonLayout.h"
+#include "sjzesp.h"
+#include <cassert>
+#include <cmath>
+#include <cstring>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <string>
+
+struct Memory {
+    std::map<uintptr_t,unsigned char> bytes;
+    uintptr_t fail=0, mutate=0;
+    int actorReads=0;
+    bool changing=false;
+    void raw(uintptr_t p,const void* input,size_t size) {
+        auto in=static_cast<const unsigned char*>(input);
+        for(size_t i=0;i<size;++i) bytes[p+i]=in[i];
+    }
+    template<class T> void put(uintptr_t p,T value) { raw(p,&value,sizeof(value)); }
+    void zero(uintptr_t p,size_t n) { for(size_t i=0;i<n;++i) bytes[p+i]=0; }
+    static bool read(void* context,uintptr_t address,void* output,size_t size) {
+        auto& m=*static_cast<Memory*>(context);
+        if (address==m.fail) return false;
+        if (address==m.mutate && m.changing && ++m.actorReads==2) return false;
+        auto out=static_cast<unsigned char*>(output);
+        for(size_t i=0;i<size;++i) {
+            auto found=m.bytes.find(address+i);
+            if(found==m.bytes.end()) return false;
+            out[i]=found->second;
+        }
+        return true;
+    }
+};
+constexpr uintptr_t base=0x100000000,world=0x200000000,driver=world+0x10000,
+    connection=driver+0x10000,controller=connection+0x10000,level=controller+0x10000,
+    pawn=level+0x10000,camera=pawn+0x10000,actor=camera+0x10000,
+    list=actor+0x10000,teamData=list+0x10000,healthData=teamData+0x10000,
+    ability=healthData+0x10000,component=ability+0x10000,state=component+0x10000,
+    nameBlock=state+0x10000,klass=nameBlock+0x10000,mesh=klass+0x10000,
+    bones=mesh+0x10000,pickup=bones+0x10000,pickupClass=pickup+0x10000,
+    pickupComponent=pickupClass+0x10000,configData=pickupComponent+0x10000,
+    weapon=configData+0x10000,board=weapon+0x10000;
+Memory* activeMemory=nullptr;
+bool transportReady=true,transportCanWrite=false,partial=false;
+int aimWrites=0;
+bool aimWrite(void* context,uintptr_t address,const void* input,size_t size) {
+    ++aimWrites;static_cast<Memory*>(context)->raw(address,input,size);return true;
+}
+extern "C" bool sjz_transport_ready(void) { return transportReady; }
+extern "C" bool sjz_transport_can_write(void) { return transportCanWrite; }
+extern "C" uint64_t sjz_session_generation(void) { return 1; }
+extern "C" uint64_t sjz_find_image_base(const uint8_t[16],uint32_t) { return base; }
+extern "C" long sjz_write(uint64_t,const void*,size_t) { return -1; }
+extern "C" long sjz_read(uint64_t address,void* out,size_t size) {
+    if (!Memory::read(activeMemory,address,out,size)) return -1;
+    return static_cast<long>(partial ? size-1 : size);
+}
+extern "C" long sjz_read_fresh_root(uint64_t address,void* out,size_t size,uint64_t*) {
+    return sjz_read(address,out,size);
+}
+
+void name(Memory& m,uintptr_t object,uint32_t index,const std::string& text) {
+    m.put(object+0x1c,index);
+    auto entry=nameBlock+size_t(index)*2;
+    m.put(entry,uint16_t(text.size()<<6));
+    for(size_t i=0;i<text.size();++i) m.put(entry+2+i,uint8_t(~text[i]));
+}
+Memory fixture() {
+    Memory m;
+    m.put(base+0x178b44e0,world); m.put(world+0x30,driver);
+    m.put(driver+0x98,connection); m.put(connection+0x30,controller);
+    m.put(world+0xf8,level); m.put(controller+0x3a0,pawn); m.put(controller+0x408,camera);
+    m.put(base+0x173776c0+0xc8,nameBlock);
+    struct CameraBlock { OwnVector3 p; float pad; OwnRotation r; float fov; } cam{{},0,{},90};
+    m.put(camera+0x1890,cam);
+    m.put(pawn+0x180,component+0x1000); m.put(component+0x1148,OwnVector3{});
+    m.put(pawn+0x10c0,teamData+0x1000); m.put(teamData+0x1108,int32_t(1)); m.put(teamData+0x110c,int32_t(1));
+    m.put(level+0x98,OwnArrayHeader{list,1,1}); m.put(list,actor);
+    m.put(actor+8,klass); m.put(actor+0x18,uint32_t(0));
+    m.put(actor+0x1c,uint32_t(101));m.put(actor+0x24,int32_t(100));
+    m.put(klass+0x40,uintptr_t(0)); name(m,klass,100,"GPCharacterBase");
+    m.put(actor+0x180,component); m.put(component+0x148,OwnVector3{1000,0,0});
+    m.put(actor+0x10c0,teamData); m.put(teamData+0x108,int32_t(2)); m.put(teamData+0x10c,int32_t(1));
+    m.put(actor+0x10b8,ability); m.put(ability+0x280,healthData);
+    constexpr size_t fields[]={0x3c,0x54,0x114,0x124,0x74,0x8c,0x9c,0xb4};
+    for(auto f:fields) m.put(healthData+f,100.f);
+    m.put(actor+0x390,state); m.zero(actor+0xe5f,3);
+    m.put(state+0x470,state+0x1000);
+    m.zero(state+0x1000,28);
+    const char16_t text[]=u"测试玩家"; m.raw(state+0x1000,text,sizeof(text));
+    m.put(actor+0x3d0,mesh); m.put(mesh+0x750,bones);
+    struct Transform { float q[4]; OwnVector3 p,s; } transform{{0,0,0,1},{1000,0,0},{1,1,1}};
+    m.put(mesh+0x210,transform);
+    for(auto index:kTCIIHumanDisplayMeshIndices) m.put(bones+size_t(index)*0x30+0x10,OwnVector3{0,0,float(index)});
+    m.mutate=level+0x98;
+    return m;
+}
+
+int main() {
+    auto m=fixture(); activeMemory=&m;
+    sjzesp_config_t config{SJZ_DEFAULT_FLAGS,300,3,1.5f,13,.5f,180.f,2,0};
+    sjzesp_item_t output[4]{};
+    auto collect=[&] { return sjzesp_tick(base,1000,500,&config,output,4); };
+    assert(collect()==1);
+    assert(sjzesp_stats().status==SJZ_STATUS_READY);
+    assert(std::string(output[0].name)=="测试玩家");
+    assert(std::abs(output[0].x-500)<.01f && std::abs(output[0].distance-10)<.01f);
+    assert(output[0].boneMask==0x7fff && output[0].health==100);
+    config.flags=SJZ_SHOW_ESP|SJZ_SHOW_HEAD;
+    assert(collect()==1 && (output[0].boneMask&0x3u)==0x3u);
+    config.flags=SJZ_SHOW_HEAD;
+    assert(collect()==0); // ESP master switch suppresses display-only collection.
+    config.flags=SJZ_DEFAULT_FLAGS;
+    m.put(pawn+0x1788,weapon);m.put(weapon+0x838,uint64_t(18010000006ULL));
+    m.put(pawn+0x1020,board);m.zero(board+0x63b,0x1e);m.put(board+0x63c,uint8_t(1));
+    m.put(controller+0x3d8,OwnRotation{});m.put(component+0x190,OwnVector3{10,0,0});
+    config.flags|=SJZ_AIM_ENABLED;
+    assert(collect()==1 && output[0].velocityValid && output[0].objectIndex==100);
+    assert(std::string(sjzesp_last_aim_status())=="自瞄：当前传输只读");
+    transportCanWrite=true;
+    assert(collect()==1);
+    assert(std::string(sjzesp_last_aim_status())=="自瞄：当前版视角写入目标未证实，已停止写入");
+    config.flags|=SJZ_AIM_VISIBLE_ONLY;
+    assert(collect()==1);
+    assert(std::string(sjzesp_last_aim_status())=="自瞄：真实视线查询不可用");
+    config.flags&=~SJZ_AIM_VISIBLE_ONLY;
+    transportCanWrite=false;
+    SJZAimAccess aimAccess{{&m,Memory::read},&m,aimWrite,nullptr};
+    auto aim=SJZApplyAim(aimAccess,base,config,output,1,1000,500);
+    assert(aim.status==SJZAimStatus::Applied && aim.target==actor && aimWrites==1);
+    OwnRotation applied{};assert(Memory::read(&m,controller+0x3d8,&applied,sizeof(applied)));
+    assert(std::isfinite(applied.pitch) && applied.pitch>0);
+    config.flags|=SJZ_AIM_VISIBLE_ONLY;
+    aim=SJZApplyAim(aimAccess,base,config,output,1,1000,500);
+    assert(aim.status==SJZAimStatus::VisibilityUnavailable && aimWrites==1);
+    aimAccess.visible=[](void*,uintptr_t,uintptr_t,OwnVector3,bool& visible) {
+        visible=false;return true;
+    };
+    aim=SJZApplyAim(aimAccess,base,config,output,1,1000,500);
+    assert(aim.status==SJZAimStatus::NoTarget && aimWrites==1);
+    aimAccess.visible=nullptr;
+    config.flags&=~SJZ_AIM_VISIBLE_ONLY;
+    m.put(board+0x63c,uint8_t(0));
+    aim=SJZApplyAim(aimAccess,base,config,output,1,1000,500);
+    assert(aim.status==SJZAimStatus::TriggerInactive && aimWrites==1);
+    m.put(board+0x63c,uint8_t(1));m.put(actor+0x24,int32_t(101));
+    aim=SJZApplyAim(aimAccess,base,config,output,1,1000,500);
+    assert(aim.status==SJZAimStatus::StaleTarget && aimWrites==1);
+    m.put(actor+0x24,int32_t(100));config.flags&=~SJZ_AIM_ENABLED;
+    const char16_t boundedName[]=u"abcdefghijklmnGARBAGE";
+    m.raw(state+0x1000,boundedName,sizeof(boundedName));
+    assert(collect()==1 && std::string(output[0].name)=="abcdefghijklmn");
+    m.zero(state+0x1000,28);
+    const char16_t restoredName[]=u"测试玩家";
+    m.raw(state+0x1000,restoredName,sizeof(restoredName));
+    m.put(teamData+0x108,int32_t(1)); assert(collect()==0); // same team/squad excluded
+    m.put(teamData+0x108,int32_t(2));
+    config.maxDistance=5; assert(collect()==0); config.maxDistance=300;
+    m.put(actor+0xe5f,uint8_t(1));
+    assert(collect()==1 && output[0].bot && output[0].boneMask==0);
+    const uintptr_t botClass=klass+0x5000;
+    m.put(botClass+0x40,klass);
+    name(m,botClass,400,"NC_BP_DFMCharacter_AI_DT_RPG_C");
+    m.put(actor+8,botClass);
+    assert(collect()==1 && std::string(output[0].name)=="Ashara RPG");
+    m.put(actor+8,klass);
+    config.flags&=~SJZ_SHOW_AI; assert(collect()==0); config.flags|=SJZ_SHOW_AI;
+    m.put(actor+0xe5f,uint8_t(0));
+    m.put(healthData+0x3c,0.f); assert(collect()==1 && output[0].knocked);
+    m.put(healthData+0x114,0.f); assert(collect()==0);
+    m.put(healthData+0x3c,100.f); m.put(healthData+0x114,100.f);
+    m.fail=camera+0x1890; assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_CAMERA); m.fail=0;
+    m.changing=true; m.actorReads=0;
+    assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_SCENE_CHANGED);
+    m.changing=false;
+    partial=true; assert(collect()==0 && sjzesp_stats().readFailures>0); partial=false;
+    transportReady=false; assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_TRANSPORT); transportReady=true;
+    config.flags=0; assert(collect()==0); config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
+    config.maxDistance=std::numeric_limits<float>::quiet_NaN(); assert(collect()==0); config.maxDistance=300;
+    m.put(level+0x98,OwnArrayHeader{list,2,2}); m.put(list+8,pickup);
+    m.put(pickup+8,pickupClass); m.put(pickup+0x18,uint32_t(0));
+    m.put(pickupClass+0x40,uintptr_t(0)); name(m,pickupClass,200,"PickupBase");
+    m.put(pickup+0x180,pickupComponent); m.put(pickupComponent+0x148,OwnVector3{1200,20,0});
+    m.put(pickup+0x1200,configData); m.put(configData+0xdc,int32_t(4));
+    m.put(configData+0x18,configData+0x1000); m.put(configData+0x1018,configData+0x2000);
+    m.put(configData+0x2028,configData+0x3000); m.put(configData+0x3010,configData+0x4000);
+    m.zero(configData+0x4000,28);
+    const char16_t loot[]=u"测试物资"; m.raw(configData+0x4000,loot,sizeof(loot));
+    assert(collect()==2 && output[1].category==SJZ_CATEGORY_LOOT && output[1].level==4);
+    assert(std::string(output[1].name)=="测试物资");
+    config.lootLevel=5; assert(collect()==1); config.lootLevel=3;
+    const uintptr_t deadClass=pickupClass+0x5000;
+    m.put(deadClass+0x40,pickupClass);
+    name(m,deadClass,300,"InventoryPickup_DeadBody");
+    m.put(pickup+8,deadClass);
+    config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_CONTAINER;
+    assert(collect()==1); // Death Box requires the parent Loot switch.
+    config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT|SJZ_SHOW_CONTAINER;
+    assert(collect()==2 && output[1].category==SJZ_CATEGORY_CONTAINER);
+    config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
+    assert(collect()==1); // Death Box can be disabled independently.
+    m.put(pickup+8,pickupClass);
+    config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
+    assert(sjzesp_tick(base,1000,500,&config,output,1)==1);
+    m.put(level+0x98,OwnArrayHeader{0,0,0}); assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_READY);
+    sjzesp_reset(); assert(sjzesp_stats().publishedCount==0);
+    std::cout<<"PASS: real collector/transport adapter, projection, UTF-8, filtering, bones, loot, partial read, scene change, empty scene\n";
+}
