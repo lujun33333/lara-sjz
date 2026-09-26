@@ -151,7 +151,16 @@ int main() {
     assert(run(f,c,item).status==SJZAimStatus::Applied);
     assert(f.rotation().yaw>0 && f.rotation().pitch>full);
 
+    SJZTouchAimPlan plan{};
+    const int beforePlanWrites=f.writes;
+    auto planned=SJZPlanTouchAim(f.access(false),image,c,&item,1,1000,500,plan);
+    assert(planned.status==SJZAimStatus::TouchPlanReady && planned.target==actor);
+    assert(plan.world==world && plan.target==actor && plan.focal>0);
+    assert(plan.screenX>500 && plan.screenY<250 && f.writes==beforePlanWrites);
+
     c.flags|=SJZ_AIM_VISIBLE_ONLY;const int priorWrites=f.writes;
+    planned=SJZPlanTouchAim(f.access(false),image,c,&item,1,1000,500,plan);
+    assert(planned.status==SJZAimStatus::VisibilityUnavailable && !plan.target);
     assert(run(f,c,item).status==SJZAimStatus::VisibilityUnavailable);
     assert(f.writes==priorWrites);
     f.visible=false;f.visibleCalls=0;

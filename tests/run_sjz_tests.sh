@@ -16,6 +16,10 @@ CXX="${CXX:-g++}"
     -o "$OUT/sjz_aim_test"
 "$OUT/sjz_aim_test"
 printf 'PASS: aim trigger, part, speed, three-axis prediction and LOS fixture\n'
+"$CXX" -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+    -Ilara/kexploit tests/sjz_touch_aim_policy_test.cpp -o "$OUT/sjz_touch_aim_policy_test"
+"$OUT/sjz_touch_aim_policy_test"
+printf 'PASS: touch aim HID and camera feedback policy fixture\n'
 "$CXX" -std=c++17 -Wall -Wextra -Werror -pthread -Ilara/kexploit \
     tests/sjz_pending_touch_queue_test.cpp -o "$OUT/sjz_pending_touch_queue_test"
 "$OUT/sjz_pending_touch_queue_test"
