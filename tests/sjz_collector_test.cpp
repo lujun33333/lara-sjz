@@ -9,12 +9,17 @@
 #include <limits>
 #include <map>
 #include <string>
+#include <vector>
 
 struct Memory {
     std::map<uintptr_t,unsigned char> bytes;
     uintptr_t fail=0, mutate=0;
     int actorReads=0;
     bool changing=false;
+    int headerMutation=0;
+    uintptr_t failOnce=0;
+    uintptr_t flipParent=0, flipParentTo=0;
+    std::map<uintptr_t,int> readCounts;
     void raw(uintptr_t p,const void* input,size_t size) {
         auto in=static_cast<const unsigned char*>(input);
         for(size_t i=0;i<size;++i) bytes[p+i]=in[i];
@@ -23,13 +28,27 @@ struct Memory {
     void zero(uintptr_t p,size_t n) { for(size_t i=0;i<n;++i) bytes[p+i]=0; }
     static bool read(void* context,uintptr_t address,void* output,size_t size) {
         auto& m=*static_cast<Memory*>(context);
+        ++m.readCounts[address];
         if (address==m.fail) return false;
-        if (address==m.mutate && m.changing && ++m.actorReads==2) return false;
+        if (address==m.failOnce) { m.failOnce=0; return false; }
+        const bool secondHeader=address==m.mutate && ++m.actorReads==2;
+        if (secondHeader && m.changing) return false;
         auto out=static_cast<unsigned char*>(output);
         for(size_t i=0;i<size;++i) {
             auto found=m.bytes.find(address+i);
             if(found==m.bytes.end()) return false;
             out[i]=found->second;
+        }
+        if (secondHeader && m.headerMutation && size==sizeof(OwnArrayHeader)) {
+            OwnArrayHeader header{};
+            std::memcpy(&header,output,sizeof(header));
+            if (m.headerMutation==SJZ_ACTOR_RECHECK_DATA_CHANGED) header.data+=0x10000;
+            if (m.headerMutation==SJZ_ACTOR_RECHECK_COUNT_CHANGED) ++header.count;
+            std::memcpy(output,&header,sizeof(header));
+        }
+        if (address==m.flipParent) {
+            m.put(address,m.flipParentTo);
+            m.flipParent=0;
         }
         return true;
     }
@@ -65,6 +84,12 @@ void name(Memory& m,uintptr_t object,uint32_t index,const std::string& text) {
     auto entry=nameBlock+size_t(index)*2;
     m.put(entry,uint16_t(text.size()<<6));
     for(size_t i=0;i<text.size();++i) m.put(entry+2+i,uint8_t(~text[i]));
+}
+void cloneObject(Memory& m,uintptr_t source,uintptr_t destination) {
+    std::vector<std::pair<uintptr_t,unsigned char>> copy;
+    for(auto it=m.bytes.lower_bound(source);it!=m.bytes.end() && it->first<source+0x2000;++it)
+        copy.push_back(*it);
+    for(const auto& [address,byte]:copy) m.bytes[destination+(address-source)]=byte;
 }
 Memory fixture() {
     Memory m;
@@ -117,6 +142,20 @@ int main() {
     assert(firstSample.targetScreenX==output[0].x &&
            std::abs(firstSample.targetScreenY-250)<.01f &&
            firstSample.targetScreenY>output[0].top && firstSample.targetDistance==10);
+    assert(firstSample.actorHeaderStartData==list && firstSample.actorHeaderEndData==list &&
+           firstSample.actorHeaderStartCount==1 && firstSample.actorHeaderEndCount==1 &&
+           firstSample.scannedActors==1 && firstSample.candidatePlayers==1 &&
+           firstSample.candidateLoot==0 && firstSample.actorRecheckReason==SJZ_ACTOR_RECHECK_NONE);
+    m.put(base+0x178b44e0,uintptr_t(0));
+    assert(collect()==0 && sjzesp_stats().stage==SJZ_STAGE_ROOTS &&
+           sjzesp_stats().rootFailureEdge==SJZ_ROOT_EDGE_WORLD &&
+           sjzesp_stats().rootSlotValue==0 && sjzesp_stats().readFailures==0);
+    m.put(base+0x178b44e0,world);
+    m.put(controller+0x3a0,uintptr_t(0));
+    assert(collect()==0 && sjzesp_stats().stage==SJZ_STAGE_ROOTS &&
+           sjzesp_stats().rootFailureEdge==SJZ_ROOT_EDGE_PAWN &&
+           sjzesp_stats().rootSlotValue==world && sjzesp_stats().readFailures==0);
+    m.put(controller+0x3a0,pawn);
     m.put(component+0x1148,OwnVector3{100,0,0});
     assert(collect()==1 && std::abs(sjzesp_stats().targetDistance-9)<.01f);
     assert(sjzesp_stats().localX==100 && sjzesp_stats().sampleGeneration>firstSample.sampleGeneration);
@@ -175,9 +214,21 @@ int main() {
     m.changing=true; m.actorReads=0;
     assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_SCENE_CHANGED &&
            sjzesp_stats().stage==SJZ_STAGE_ACTOR_RECHECK &&
+           sjzesp_stats().actorRecheckReason==SJZ_ACTOR_RECHECK_READ_FAILED &&
+           sjzesp_stats().candidatePlayers==1 && sjzesp_stats().playerCount==0 &&
            !(sjzesp_stats().sampleMask&SJZ_SAMPLE_TARGET) &&
            sjzesp_stats().firstTargetIdentity==0 && sjzesp_stats().targetDistance==0);
     m.changing=false;
+    m.actorReads=0; m.headerMutation=SJZ_ACTOR_RECHECK_DATA_CHANGED;
+    assert(collect()==0 && sjzesp_stats().stage==SJZ_STAGE_ACTOR_RECHECK &&
+           sjzesp_stats().actorRecheckReason==SJZ_ACTOR_RECHECK_DATA_CHANGED &&
+           sjzesp_stats().actorHeaderStartData==list &&
+           sjzesp_stats().actorHeaderEndData==list+0x10000);
+    m.actorReads=0; m.headerMutation=SJZ_ACTOR_RECHECK_COUNT_CHANGED;
+    assert(collect()==0 && sjzesp_stats().stage==SJZ_STAGE_ACTOR_RECHECK &&
+           sjzesp_stats().actorRecheckReason==SJZ_ACTOR_RECHECK_COUNT_CHANGED &&
+           sjzesp_stats().actorHeaderStartCount==1 && sjzesp_stats().actorHeaderEndCount==2);
+    m.headerMutation=0;
     partial=true; assert(collect()==0 && sjzesp_stats().readFailures>0); partial=false;
     transportReady=false; assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_TRANSPORT); transportReady=true;
     config.flags=0; assert(collect()==0); config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
@@ -206,6 +257,37 @@ int main() {
     assert(collect()==1); // Death Box can be disabled independently.
     m.put(pickup+8,pickupClass);
     config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
+    const uintptr_t player2=board+0x20000, pickup2=board+0x30000;
+    const uintptr_t unrelated1=board+0x40000, unrelated2=board+0x50000;
+    const uintptr_t unrelatedClass=board+0x60000;
+    cloneObject(m,actor,player2); m.put(player2+0x24,int32_t(101));
+    cloneObject(m,pickup,pickup2); m.put(pickup2+0x24,int32_t(201));
+    cloneObject(m,actor,unrelated1); cloneObject(m,actor,unrelated2);
+    m.put(unrelated1+0x24,int32_t(301)); m.put(unrelated2+0x24,int32_t(302));
+    m.put(unrelated1+8,unrelatedClass); m.put(unrelated2+8,unrelatedClass);
+    m.put(unrelatedClass+0x40,uintptr_t(0)); name(m,unrelatedClass,500,"UnrelatedActor");
+    m.put(level+0x98,OwnArrayHeader{list,6,6});
+    const uintptr_t repeatedActors[]={unrelated1,unrelated2,actor,player2,pickup,pickup2};
+    m.raw(list,repeatedActors,sizeof(repeatedActors));
+    m.readCounts.clear();
+    assert(collect()==4);
+    assert(sjzesp_stats().scannedActors==6 && sjzesp_stats().candidatePlayers==2 &&
+           sjzesp_stats().candidateLoot==2 && sjzesp_stats().playerCount==2 &&
+           sjzesp_stats().lootCount==2);
+    assert(m.readCounts[nameBlock+100*2]==1 &&
+           m.readCounts[nameBlock+200*2]==1 &&
+           m.readCounts[nameBlock+500*2]==1); // One class-chain decode per class per frame.
+    m.failOnce=nameBlock+100*2;
+    assert(collect()==3 && sjzesp_stats().candidatePlayers==1 &&
+           sjzesp_stats().candidateLoot==2); // Failed first lookup was not memoized.
+    m.put(unrelatedClass+0x40,uintptr_t(0x1234)); // Nonzero invalid parent is incomplete.
+    m.flipParent=unrelatedClass+0x40; m.flipParentTo=klass;
+    m.readCounts.clear();
+    assert(collect()==4 && output[0].identity==unrelated2 &&
+           sjzesp_stats().candidatePlayers==3);
+    assert(m.readCounts[nameBlock+500*2]==2); // Second actor must retry class resolution.
+    m.put(unrelatedClass+0x40,uintptr_t(0));
+    m.put(level+0x98,OwnArrayHeader{list,2,2}); m.put(list,actor); m.put(list+8,pickup);
     assert(sjzesp_tick(base,1000,500,&config,output,1)==1);
     m.put(level+0x98,OwnArrayHeader{0,0,0}); assert(collect()==0 && sjzesp_stats().status==SJZ_STATUS_READY);
     sjzesp_reset(); assert(sjzesp_stats().publishedCount==0);

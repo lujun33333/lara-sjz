@@ -285,6 +285,8 @@ final class laramgr: ObservableObject {
     private var sjzLastResult = ""
     private var sjzLastResultTime = Date.distantPast
     private var sjzTickNumber: UInt64 = 0
+    private var sjzLastDiagnosticStatus: Int32 = -1
+    private var sjzLastDiagnosticPublishedCount = 0
     private var sjzLastHUDText = ""
     private var sjzLastHUDUpdateTime = Date.distantPast
     private var sjzLastHUDControlFlags = UInt32.max
@@ -645,6 +647,8 @@ final class laramgr: ObservableObject {
             // Invalidate, drain both independent readers, then clear caches
             // and release the transport (AX 0x1008071d0/0x100807374 order).
             sjzesp_reset()
+            self.sjzLastDiagnosticStatus = -1
+            self.sjzLastDiagnosticPublishedCount = 0
             sjz_disconnect()
             "none".withCString {
                 sjzhud_set_transport_state(false, false, $0)
@@ -727,6 +731,7 @@ final class laramgr: ObservableObject {
     }
     private func sjzFrame() {
         // Only this serial worker touches the reader and collector. Main owns UI.
+        let frameStarted = DispatchTime.now().uptimeNanoseconds
         var base: UInt64=0, epoch: UInt64=0
         var width=0.0, height=0.0
         var config=sjzesp_config_t()
@@ -736,6 +741,7 @@ final class laramgr: ObservableObject {
             sjzhud_get_canvas_size(&width,&height)
             sjzhud_copy_sjz_config(&config)
         }
+        let mainReady = DispatchTime.now().uptimeNanoseconds
         guard base != 0, width.isFinite, height.isFinite, width>1, height>1,
               width<16384, height<16384 else { return }
         sjzTickNumber &+= 1
@@ -750,9 +756,11 @@ final class laramgr: ObservableObject {
             }
         }
         var items=[sjzesp_item_t](repeating:sjzesp_item_t(),count:Int(SJZ_MAX_ITEMS))
+        let collectStarted = DispatchTime.now().uptimeNanoseconds
         let count=items.withUnsafeMutableBufferPointer {
             Int(sjzesp_tick(base,UInt32(width),UInt32(height),&config,$0.baseAddress,Int32($0.count)))
         }
+        let collectFinished = DispatchTime.now().uptimeNanoseconds
         let stats=sjzesp_stats()
         let status=String(cString:sjzesp_last_error())
         let aimStatus=String(cString:sjzesp_last_aim_status())
@@ -760,15 +768,30 @@ final class laramgr: ObservableObject {
         let report=aimEnabled ? "\(status) · \(aimStatus)" : status
         let frameNumber=sjzTickNumber
         let sampleTime=Int64(Date().timeIntervalSince1970 * 1000)
-        if frameNumber % 12 == 0 {
-            let state="(sjz.frame) ms=\(sampleTime) tick=\(frameNumber) sample=\(stats.sampleGeneration) status=\(stats.status) stage=\(stats.stage) mask=\(stats.sampleMask) reads=\(stats.readFailures) actors=\(stats.actorCount) players=\(stats.playerCount) loot=\(stats.lootCount) published=\(count) viewport=\(stats.viewportWidth),\(stats.viewportHeight)"
+        let mainSyncMs = Double(mainReady-frameStarted) / 1_000_000
+        let collectMs = Double(collectFinished-collectStarted) / 1_000_000
+        let statusChanged = stats.status != sjzLastDiagnosticStatus
+        let positiveBurst = count > 0 && sjzLastDiagnosticPublishedCount == 0
+        sjzLastDiagnosticStatus = stats.status
+        sjzLastDiagnosticPublishedCount = count
+        let traceFrame = frameNumber % 12 == 0 || statusChanged || positiveBurst ||
+            mainSyncMs > 250 || collectMs > 250
+        if traceFrame {
+            let state="(sjz.frame) ms=\(sampleTime) tick=\(frameNumber) sample=\(stats.sampleGeneration) status=\(stats.status) stage=\(stats.stage) mask=\(stats.sampleMask) reads=\(stats.readFailures) calls=\(stats.readCalls) actors=\(stats.actorCount) players=\(stats.playerCount) loot=\(stats.lootCount) published=\(count) flags=\(config.flags) mainSyncMs=\(mainSyncMs) collectMs=\(collectMs) viewport=\(stats.viewportWidth),\(stats.viewportHeight)"
+            let actor=" rootSlot=\(stats.rootSlotValue) rootEdge=\(stats.rootFailureEdge) actorHeader=\(stats.actorHeaderStartData),\(stats.actorHeaderStartCount)->\(stats.actorHeaderEndData),\(stats.actorHeaderEndCount) scanned=\(stats.scannedActors) candidates=\(stats.candidatePlayers),\(stats.candidateLoot) recheck=\(stats.actorRecheckReason)"
             let camera=" roots=\(stats.worldIdentity),\(stats.levelIdentity),\(stats.pawnIdentity) camera=\(stats.cameraX),\(stats.cameraY),\(stats.cameraZ),\(stats.cameraPitch),\(stats.cameraYaw),\(stats.cameraRoll),\(stats.cameraFov) local=\(stats.localX),\(stats.localY),\(stats.localZ)"
             let target=" target=\(stats.firstTargetIdentity),\(stats.targetWorldX),\(stats.targetWorldY),\(stats.targetWorldZ),\(stats.targetScreenX),\(stats.targetScreenY),\(stats.targetDistance) aim=\(aimEnabled ? 1 : 0):\(aimStatus)"
-            globallogger.log(state+camera+target)
+            globallogger.log(state+actor+camera+target)
         }
+        let publishQueuedAt = DispatchTime.now().uptimeNanoseconds
         DispatchQueue.main.async {
             guard epoch==self.sjzEpoch, self.sjzAttached else { return }
+            let queuedMs = Double(DispatchTime.now().uptimeNanoseconds-publishQueuedAt) / 1_000_000
             items.withUnsafeBufferPointer { sjzhud_update_sjz_snapshot(count>0 ? $0.baseAddress : nil,Int32(count)) }
+            if traceFrame {
+                let postCollectMs = Double(publishQueuedAt-collectFinished) / 1_000_000
+                self.logmsg("(sjz.publish) tick=\(frameNumber) count=\(count) postCollectMs=\(postCollectMs) queuedMs=\(queuedMs)")
+            }
             self.sjzStatus=report
             self.sjzChainDiagnostic="人物 \(stats.playerCount) · 物资 \(stats.lootCount) · 读取失败 \(stats.readFailures)" +
                 (aimEnabled ? " · \(aimStatus)" : "")
@@ -1026,6 +1049,8 @@ final class laramgr: ObservableObject {
                 return
             }
             sjzesp_reset()
+            self.sjzLastDiagnosticStatus = -1
+            self.sjzLastDiagnosticPublishedCount = 0
             sjz_disconnect()
             DispatchQueue.main.async {
                 finished = true
