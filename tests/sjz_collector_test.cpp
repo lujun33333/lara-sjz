@@ -206,6 +206,10 @@ int main() {
     m.put(actor+8,botClass);
     assert(collect()==1 && std::string(output[0].name)=="Ashara RPG");
     m.put(actor+8,klass);
+    m.put(actor+0x18,uint32_t(0x18000));
+    assert(collect()==0); // Cached class cannot bypass fresh actor flags.
+    m.put(actor+0x18,uint32_t(0));
+    assert(collect()==1);
     config.flags&=~SJZ_SHOW_AI; assert(collect()==0); config.flags|=SJZ_SHOW_AI;
     m.put(actor+0xe5f,uint8_t(0));
     m.put(healthData+0x3c,0.f); assert(collect()==1 && output[0].knocked);
@@ -244,12 +248,12 @@ int main() {
     m.put(pickup+0x180,pickupComponent); m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
     m.put(pickupComponent+0x148,OwnVector3{90000,90000,90000});
     m.put(pickup+0x1200,configData); m.put(configData+0xdc,int32_t(4));
-    m.put(configData+0x18,configData+0x1000); m.put(configData+0x1018,configData+0x2000);
-    m.put(configData+0x2028,configData+0x3000); m.put(configData+0x3010,configData+0x4000);
-    m.zero(configData+0x4000,28);
-    const char16_t loot[]=u"测试物资"; m.raw(configData+0x4000,loot,sizeof(loot));
+    m.put(configData+0x18,uintptr_t(0)); // Old unproven deep name chain is absent.
+    name(m,pickup,600,"PickupTest");
     assert(collect()==2 && output[1].category==SJZ_CATEGORY_LOOT && output[1].level==4);
-    assert(std::string(output[1].name)=="测试物资");
+    assert(std::string(output[1].name)=="PickupTest");
+    assert(sjzesp_stats().candidateLoot==1 && sjzesp_stats().lootRejectPosition==0 &&
+           sjzesp_stats().lootRejectNameDecode==0);
     assert(std::abs(output[1].distance-std::hypot(1200.f,20.f)/100.f)<.01f);
     const float initialLootX=output[1].x;
     m.put(pickupComponent+0x148,OwnVector3{50000,0,0});
@@ -258,7 +262,26 @@ int main() {
     m.put(pickupComponent+0x168,OwnVector3{1200,100,0});
     assert(collect()==2 && output[1].x>initialLootX && output[1].distance>12.f);
     m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
-    config.lootLevel=5; assert(collect()==1); config.lootLevel=3;
+    m.put(pickupComponent+0x168,OwnVector3{1200,5000,0});
+    assert(collect()==1 && sjzesp_stats().lootRejectProjection==1); // Offscreen loot.
+    m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
+    m.put(pickupComponent+0x168,OwnVector3{std::numeric_limits<float>::quiet_NaN(),20,0});
+    assert(collect()==1 && sjzesp_stats().lootRejectPosition==1);
+    m.put(pickupComponent+0x168,OwnVector3{-1200,20,0});
+    assert(collect()==1 && sjzesp_stats().lootRejectProjection==1);
+    m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
+    config.maxDistance=11;
+    assert(collect()==1 && sjzesp_stats().lootRejectDistance==1);
+    config.maxDistance=300;
+    m.put(pickup+0x1200,uintptr_t(0));
+    assert(collect()==1 && sjzesp_stats().lootRejectData==1);
+    m.put(pickup+0x1200,configData);
+    config.lootLevel=5;
+    assert(collect()==1 && sjzesp_stats().lootRejectLevelFilter==1);
+    config.lootLevel=3;
+    m.put(nameBlock+600*2,uint16_t(0));
+    assert(collect()==1 && sjzesp_stats().lootRejectNameDecode==1);
+    name(m,pickup,600,"PickupTest");
     const uintptr_t deadClass=pickupClass+0x5000;
     m.put(deadClass+0x40,pickupClass);
     name(m,deadClass,300,"InventoryPickup_DeadBody");
@@ -268,7 +291,7 @@ int main() {
     config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT|SJZ_SHOW_CONTAINER;
     assert(collect()==2 && output[1].category==SJZ_CATEGORY_CONTAINER);
     config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
-    assert(collect()==1); // Death Box can be disabled independently.
+    assert(collect()==1 && sjzesp_stats().lootRejectContainer==1); // Death Box can be disabled independently.
     m.put(pickup+8,pickupClass);
     config.flags=SJZ_DEFAULT_FLAGS|SJZ_SHOW_LOOT;
     const uintptr_t player2=board+0x20000, pickup2=board+0x30000;
@@ -289,11 +312,26 @@ int main() {
            sjzesp_stats().candidateLoot==2 && sjzesp_stats().playerCount==2 &&
            sjzesp_stats().lootCount==2);
     assert(m.readCounts[nameBlock+100*2]==1 &&
-           m.readCounts[nameBlock+200*2]==1 &&
-           m.readCounts[nameBlock+500*2]==1); // One class-chain decode per class per frame.
+            m.readCounts[nameBlock+200*2]==1 &&
+            m.readCounts[nameBlock+500*2]==1); // One class-chain decode per class per frame.
+    m.readCounts.clear();
+    assert(collect()==4 && m.readCounts[nameBlock+100*2]==0 &&
+           m.readCounts[nameBlock+200*2]==0 && m.readCounts[nameBlock+500*2]==0);
+    assert(sjzesp_stats().classCacheHits==6 && sjzesp_stats().classCacheMisses==0);
+    // The world identity changes while its live actor list remains available.
+    const uintptr_t nextWorld=board+0x80000;
+    m.put(nextWorld+0x30,driver); m.put(nextWorld+0xf8,level);
+    m.put(base+0x178b44e0,nextWorld);
+    m.readCounts.clear();
+    assert(collect()==4 && m.readCounts[nameBlock+100*2]>0 &&
+           sjzesp_stats().classCacheMisses==6);
+    m.put(base+0x178b44e0,world);
+    assert(collect()==4);
+    sjzesp_reset(); // A new session must not reuse the previous class cache.
     m.failOnce=nameBlock+100*2;
     assert(collect()==3 && sjzesp_stats().candidatePlayers==1 &&
-           sjzesp_stats().candidateLoot==2); // Failed first lookup was not memoized.
+            sjzesp_stats().candidateLoot==2); // Failed first lookup was not memoized.
+    sjzesp_reset();
     m.put(unrelatedClass+0x40,uintptr_t(0x1234)); // Nonzero invalid parent is incomplete.
     m.flipParent=unrelatedClass+0x40; m.flipParentTo=klass;
     m.readCounts.clear();

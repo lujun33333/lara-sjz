@@ -7,6 +7,12 @@ on:
 permissions:
   contents: read
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run collector tests
+        run: bash tests/run_sjz_tests.sh
   build:
     runs-on: macos-26
     steps:
