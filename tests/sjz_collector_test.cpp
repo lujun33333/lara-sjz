@@ -247,13 +247,14 @@ int main() {
     m.put(pickupClass+0x40,uintptr_t(0)); name(m,pickupClass,200,"PickupBase");
     m.put(pickup+0x180,pickupComponent); m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
     m.put(pickupComponent+0x148,OwnVector3{90000,90000,90000});
-    m.put(pickup+0x1200,configData); m.put(configData+0xdc,int32_t(4));
+    m.put(pickup+0x1200,configData);
+    m.put(configData+0x68,int32_t(4)); m.put(configData+0xdc,int32_t(12000));
     m.put(configData+0x18,uintptr_t(0)); // Old unproven deep name chain is absent.
     name(m,pickup,600,"PickupTest");
-    assert(collect()==2 && output[1].category==SJZ_CATEGORY_LOOT && output[1].level==4);
-    assert(std::string(output[1].name)=="PickupTest");
-    assert(sjzesp_stats().candidateLoot==1 && sjzesp_stats().lootRejectPosition==0 &&
-           sjzesp_stats().lootRejectNameDecode==0);
+    assert(collect()==2 && output[1].category==SJZ_CATEGORY_LOOT &&
+           output[1].level==4 && output[1].price==12000);
+    assert(output[1].name[0]==0); // Original loot text uses price and distance.
+    assert(sjzesp_stats().candidateLoot==1 && sjzesp_stats().lootRejectPosition==0);
     assert(std::abs(output[1].distance-std::hypot(1200.f,20.f)/100.f)<.01f);
     const float initialLootX=output[1].x;
     m.put(pickupComponent+0x148,OwnVector3{50000,0,0});
@@ -276,11 +277,32 @@ int main() {
     m.put(pickup+0x1200,uintptr_t(0));
     assert(collect()==1 && sjzesp_stats().lootRejectData==1);
     m.put(pickup+0x1200,configData);
+    m.fail=configData+0x68;
+    assert(collect()==1 && sjzesp_stats().lootRejectLevelRead==1);
+    m.fail=0;
+    m.fail=configData+0xdc;
+    assert(collect()==2 && output[1].price==0 &&
+           sjzesp_stats().lootPriceReadFailures==1);
+    m.fail=0;
+    m.put(configData+0xdc,int32_t(0));
+    assert(collect()==2 && output[1].price==0);
+    m.put(configData+0xdc,int32_t(12000));
     config.lootLevel=5;
     assert(collect()==1 && sjzesp_stats().lootRejectLevelFilter==1);
     config.lootLevel=3;
+    m.put(configData+0x68,int32_t(0)); config.lootLevel=0;
+    assert(collect()==2 && output[1].level==0 && output[1].price==12000);
+    m.put(configData+0x68,int32_t(7));
+    assert(collect()==2 && output[1].level==0);
+    config.lootLevel=1;
+    assert(collect()==1 && sjzesp_stats().lootRejectLevelFilter==1);
+    m.put(configData+0x68,int32_t(1));
+    assert(collect()==2 && output[1].level==1);
+    m.put(configData+0x68,int32_t(6)); config.lootLevel=6;
+    assert(collect()==2 && output[1].level==6);
+    m.put(configData+0x68,int32_t(4)); config.lootLevel=3;
     m.put(nameBlock+600*2,uint16_t(0));
-    assert(collect()==1 && sjzesp_stats().lootRejectNameDecode==1);
+    assert(collect()==2 && output[1].name[0]==0); // Actor FName is optional.
     name(m,pickup,600,"PickupTest");
     const uintptr_t deadClass=pickupClass+0x5000;
     m.put(deadClass+0x40,pickupClass);

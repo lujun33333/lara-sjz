@@ -1,4 +1,4 @@
-# 三角洲绘制点对点对照（静态，2026-09-26）
+# 三角洲绘制点对点对照（静态，2026-09-27）
 
 ## 样本与证据范围
 
@@ -11,7 +11,8 @@
 ## 1.201 目标位置链校正
 
 - 当前样本 `iTopDns_dylib` SHA-256 为 `436fac659baefb574512bbda279d7ec3bce383cb58703ab18789ed3a00dc25d4`。其 `0x1d68c4` 从 `actor+0x180` 取得 component，`0x1d6860–0x1d687c` 从 `component+0x168` 读取三维位置；人物 `0x20579c` 和物资 `0x20fe80` 都调用该 helper。外部 `OwnReadActorPosition` 已改用 `+0x168`，旧 `+0x148` 不再驱动目标投影或目标米数。
-- 人物 `0x2057d8–0x205814`、物资 `0x20fecc–0x20ff04` 将目标与本人三轴差值除以 100；人物 `0x2058dc–0x2058f4`、物资 `0x20ff68–0x20ff78` 把目标位置送入投影 `0x1d7030`。真人框 `0x1d72a8–0x1d72c0` 使用目标 z±88。物资等级链 `0x210020–0x210090` 读取 `actor+0x1200` 与配置对象 `+0xdc`。
+- 人物 `0x2057d8–0x205814`、物资 `0x20fecc–0x20ff04` 将目标与本人三轴差值除以 100；人物 `0x2058dc–0x2058f4`、物资 `0x20ff68–0x20ff78` 把目标位置送入投影 `0x1d7030`。真人框 `0x1d72a8–0x1d72c0` 使用目标 z±88。物资 `0x210054–0x210090` 从 `actor+0x1200` 数据对象的 `+0x68` 取等级（1–6 有效，其余归 0），从 `+0xdc` 另取显示价格；旧版把 `+0xdc` 当等级会误拒物资。
+- 参考 HUD `0x1fc810–0x1fc824` 按等级不低于滑条值过滤；`0x1fc924–0x1fc990` 以等级调色，在投影点居中绘制 22 点、四向 1 像素黑描边文本。普通物资有正价格时显示 `[%d$] [%.fm]`，否则只显示 `[%.fm]`；盒子显示 `Death Box [%.fm]`。普通物资不要求 FName 非空；参考 FName 的逐字节解码与当前通用 `objectName()` 尚未证明等价，特殊盒子分类仍有限。
 - 本人位置在样本中的局部结构 `x25+0x188` 尚未追到稳定内存来源；`OwnReadLocalPawnPosition` 暂沿用 `component+0x148`，明确属于未完成的真机核验项。官方主程序同 UUID 但加密，以上目标链仍需官方游戏同帧日志和画面验收。
 
 ## 菜单 → 数据 → 消费
@@ -32,9 +33,9 @@
 | Weapon Name `0x384c78` | `weapon` | 武器指针/ID → `OwnKnownWeaponName` → `weapon` | 人物下方文字，未知 ID 留空。 | 源码接通；设备未验 |
 | Visible Check `0x384c84` | 无 | `lineofsightto` `0x385568` 于 `0x200c94` 比较；`linetracesingle` `0x38565d` 于 `0x20c7d8` 比较；`bonevischeck` 键 `0x38560b` 的直接映射未证 | 不把投影成功当无遮挡；自瞄的 `aim.visible` 独立且无提供者时拒写。 | 未接，首个失败阶段见下节 |
 | Max Dist `0x384c98` | `distance.max` → `maxDistance` | 人物/物资按世界距离过滤 | 样本 `0x1f6a28–0x1f6a44` 滑条 50–300；外部菜单已按此限制。 | 过滤夹具通过；UI 静态核对 |
-| Enable Loot `0x384cd2` | `loot` → `SJZ_SHOW_LOOT` | 拾取对象采集，物资等级/名称；同时统辖盒子 | 物资/盒子命令受总开关约束；目标 `0x1fcf0c` 读取开关。 | 夹具通过；设备未验 |
+| Enable Loot `0x384cd2` | `loot` → `SJZ_SHOW_LOOT` | 拾取对象采集，物资等级、价格和距离；同时统辖盒子 | 物资/盒子命令受总开关约束；目标 `0x1fcf0c` 读取开关。 | 夹具通过；设备未验 |
 | Death Box `0x384cde` | `container` → `SJZ_SHOW_CONTAINER` | `InventoryPickup_DeadBody` → `SJZ_CATEGORY_CONTAINER` | Loot 与 Death Box 同开才绘制统一盒子；目标 `0x1fc888` 读取子开关。 | 父子开关夹具通过；归属/内容未接 |
-| Min Level `0x384ce8` | `loot.level` → `lootLevel` | `actor+0x1200` 配置对象 `+0xdc` 等级，只过滤普通物资 | 盒子不受等级过滤；样本 `0x1f6b50–0x1f6b5c` 滑条 0–6。 | 夹具通过；设备未验 |
+| Min Level `0x384ce8` | `loot.level` → `lootLevel` | `actor+0x1200` 数据对象 `+0x68` 等级，只过滤普通物资；`+0xdc` 是显示价格 | 盒子不受等级过滤；样本 `0x1f6b50–0x1f6b5c` 滑条 0–6。 | 夹具通过；设备未验 |
 
 ## 验证与缺口
 
