@@ -8,6 +8,12 @@
 - 外部链：`SJZCollector` 通过 `OwnMemoryReader` 读主程序数据，发布 `sjzesp_item_t`；`SJZHUDBridge` 把快照变为前台 Metal、后台 CoreAnimation 共用的绘制命令。所有字段和偏移仅按此主程序 UUID/版本使用。
 - 真人 15 个 mesh 骨骼索引的来源仍是旧 `TCII 0906` 样本；当前官方版未独立确认各点的解剖位置。`READY` 或测试夹具通过不能替代官方进程的骨点投影验收。
 
+## 1.201 目标位置链校正
+
+- 当前样本 `iTopDns_dylib` SHA-256 为 `436fac659baefb574512bbda279d7ec3bce383cb58703ab18789ed3a00dc25d4`。其 `0x1d68c4` 从 `actor+0x180` 取得 component，`0x1d6860–0x1d687c` 从 `component+0x168` 读取三维位置；人物 `0x20579c` 和物资 `0x20fe80` 都调用该 helper。外部 `OwnReadActorPosition` 已改用 `+0x168`，旧 `+0x148` 不再驱动目标投影或目标米数。
+- 人物 `0x2057d8–0x205814`、物资 `0x20fecc–0x20ff04` 将目标与本人三轴差值除以 100；人物 `0x2058dc–0x2058f4`、物资 `0x20ff68–0x20ff78` 把目标位置送入投影 `0x1d7030`。真人框 `0x1d72a8–0x1d72c0` 使用目标 z±88。物资等级链 `0x210020–0x210090` 读取 `actor+0x1200` 与配置对象 `+0xdc`。
+- 本人位置在样本中的局部结构 `x25+0x188` 尚未追到稳定内存来源；`OwnReadLocalPawnPosition` 暂沿用 `component+0x148`，明确属于未完成的真机核验项。官方主程序同 UUID 但加密，以上目标链仍需官方游戏同帧日志和画面验收。
+
 ## 菜单 → 数据 → 消费
 
 | IPA 菜单（VA） | 当前设置键 | 采集/输出 | HUD 消费与目标证据 | 状态 |

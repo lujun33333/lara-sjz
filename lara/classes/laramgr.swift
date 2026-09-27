@@ -787,7 +787,10 @@ final class laramgr: ObservableObject {
         DispatchQueue.main.async {
             guard epoch==self.sjzEpoch, self.sjzAttached else { return }
             let queuedMs = Double(DispatchTime.now().uptimeNanoseconds-publishQueuedAt) / 1_000_000
-            items.withUnsafeBufferPointer { sjzhud_update_sjz_snapshot(count>0 ? $0.baseAddress : nil,Int32(count)) }
+            items.withUnsafeBufferPointer {
+                sjzhud_update_sjz_snapshot_with_tick(count>0 ? $0.baseAddress : nil,
+                                                     Int32(count), frameNumber)
+            }
             if traceFrame {
                 let postCollectMs = Double(publishQueuedAt-collectFinished) / 1_000_000
                 self.logmsg("(sjz.publish) tick=\(frameNumber) count=\(count) postCollectMs=\(postCollectMs) queuedMs=\(queuedMs)")

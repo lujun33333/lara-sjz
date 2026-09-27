@@ -50,7 +50,7 @@ struct Fixture {
                                board+0x63f,board+0x657,board+0x658}) put(p,std::uint8_t(0));
         put(actor+0x24,std::int32_t(12));put(actor+8,klass);
         put(actor+0x1c,std::uint32_t(34));
-        put(actor+0x180,component);put(component+0x148,OwnVector3{1000,0,0});
+        put(actor+0x180,component);put(component+0x168,OwnVector3{1000,0,0});
         put(actor+0x10b8,ability);put(ability+0x280,health);
         for(auto offset: {0x3c,0x54,0x114,0x124,0x74,0x8c,0x9c,0xb4})
             put(health+offset,100.f);

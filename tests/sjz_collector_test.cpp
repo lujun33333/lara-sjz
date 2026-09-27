@@ -100,12 +100,14 @@ Memory fixture() {
     struct CameraBlock { OwnVector3 p; float pad; OwnRotation r; float fov; } cam{{},0,{},90};
     m.put(camera+0x1890,cam);
     m.put(pawn+0x180,component+0x1000); m.put(component+0x1148,OwnVector3{});
+    m.put(component+0x1168,OwnVector3{90000,90000,90000});
     m.put(pawn+0x10c0,teamData+0x1000); m.put(teamData+0x1108,int32_t(1)); m.put(teamData+0x110c,int32_t(1));
     m.put(level+0x98,OwnArrayHeader{list,1,1}); m.put(list,actor);
     m.put(actor+8,klass); m.put(actor+0x18,uint32_t(0));
     m.put(actor+0x1c,uint32_t(101));m.put(actor+0x24,int32_t(100));
     m.put(klass+0x40,uintptr_t(0)); name(m,klass,100,"GPCharacterBase");
-    m.put(actor+0x180,component); m.put(component+0x148,OwnVector3{1000,0,0});
+    m.put(actor+0x180,component); m.put(component+0x168,OwnVector3{1000,0,0});
+    m.put(component+0x148,OwnVector3{90000,90000,90000}); // Legacy field must not drive projection.
     m.put(actor+0x10c0,teamData); m.put(teamData+0x108,int32_t(2)); m.put(teamData+0x10c,int32_t(1));
     m.put(actor+0x10b8,ability); m.put(ability+0x280,healthData);
     constexpr size_t fields[]={0x3c,0x54,0x114,0x124,0x74,0x8c,0x9c,0xb4};
@@ -156,18 +158,21 @@ int main() {
            sjzesp_stats().rootFailureEdge==SJZ_ROOT_EDGE_PAWN &&
            sjzesp_stats().rootSlotValue==world && sjzesp_stats().readFailures==0);
     m.put(controller+0x3a0,pawn);
+    m.put(component+0x148,OwnVector3{50000,0,0});
+    assert(collect()==1 && std::abs(output[0].distance-10.f)<.01f &&
+           std::abs(sjzesp_stats().targetScreenX-500.f)<.01f);
     m.put(component+0x1148,OwnVector3{100,0,0});
     assert(collect()==1 && std::abs(sjzesp_stats().targetDistance-9)<.01f);
     assert(sjzesp_stats().localX==100 && sjzesp_stats().sampleGeneration>firstSample.sampleGeneration);
     m.put(component+0x1148,OwnVector3{});
-    m.put(component+0x148,OwnVector3{1000,200,0});
+    m.put(component+0x168,OwnVector3{1000,200,0});
     assert(collect()==1 && sjzesp_stats().targetWorldY==200);
     const float shiftedX=sjzesp_stats().targetScreenX;
     assert(shiftedX>500);
     m.put(camera+0x1890+0x1c,60.f);
     assert(collect()==1 && sjzesp_stats().cameraFov==60 && sjzesp_stats().targetScreenX>shiftedX);
     m.put(camera+0x1890+0x1c,90.f);
-    m.put(component+0x148,OwnVector3{1000,0,0});
+    m.put(component+0x168,OwnVector3{1000,0,0});
     config.flags=SJZ_SHOW_ESP|SJZ_SHOW_HEAD;
     assert(collect()==1 && (output[0].boneMask&0x3u)==0x3u);
     config.flags=SJZ_SHOW_HEAD;
@@ -236,7 +241,8 @@ int main() {
     m.put(level+0x98,OwnArrayHeader{list,2,2}); m.put(list+8,pickup);
     m.put(pickup+8,pickupClass); m.put(pickup+0x18,uint32_t(0));
     m.put(pickupClass+0x40,uintptr_t(0)); name(m,pickupClass,200,"PickupBase");
-    m.put(pickup+0x180,pickupComponent); m.put(pickupComponent+0x148,OwnVector3{1200,20,0});
+    m.put(pickup+0x180,pickupComponent); m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
+    m.put(pickupComponent+0x148,OwnVector3{90000,90000,90000});
     m.put(pickup+0x1200,configData); m.put(configData+0xdc,int32_t(4));
     m.put(configData+0x18,configData+0x1000); m.put(configData+0x1018,configData+0x2000);
     m.put(configData+0x2028,configData+0x3000); m.put(configData+0x3010,configData+0x4000);
@@ -244,6 +250,14 @@ int main() {
     const char16_t loot[]=u"测试物资"; m.raw(configData+0x4000,loot,sizeof(loot));
     assert(collect()==2 && output[1].category==SJZ_CATEGORY_LOOT && output[1].level==4);
     assert(std::string(output[1].name)=="测试物资");
+    assert(std::abs(output[1].distance-std::hypot(1200.f,20.f)/100.f)<.01f);
+    const float initialLootX=output[1].x;
+    m.put(pickupComponent+0x148,OwnVector3{50000,0,0});
+    assert(collect()==2 && std::abs(output[1].x-initialLootX)<.01f &&
+           std::abs(output[1].distance-std::hypot(1200.f,20.f)/100.f)<.01f);
+    m.put(pickupComponent+0x168,OwnVector3{1200,100,0});
+    assert(collect()==2 && output[1].x>initialLootX && output[1].distance>12.f);
+    m.put(pickupComponent+0x168,OwnVector3{1200,20,0});
     config.lootLevel=5; assert(collect()==1); config.lootLevel=3;
     const uintptr_t deadClass=pickupClass+0x5000;
     m.put(deadClass+0x40,pickupClass);
