@@ -18,7 +18,10 @@ assert 'process: String = "DeltaForceClient"' in manager
 assert 'sjzesp_supported_game_base()' in manager
 assert '@"com.tencent.tmgp.dfm"' in hud
 assert 'ExpectedUUID' not in manager and 'requireSJZAuthorization' not in manager
-assert 'sjzesp_tick(' in manager and 'sjzhud_update_sjz_snapshot(' in manager
+assert 'sjzesp_collect(' in manager and 'sjzesp_aim(' in manager
+assert 'sjzhud_update_sjz_snapshot_with_source_times(' in manager
+assert manager.index('sjzesp_collect(')<manager.index('let snapshot=Array(items.prefix')<manager.index('sjzesp_aim(')
+assert 'sjzesp_cancel_epoch(' in manager
 assert 'sjzhud_copy_sjz_config(' in manager
 assert 'SJZLauncherViewController' in (root/'lara/lara.swift').read_text(encoding='utf-8')
 assert 'sjzax_touch' not in hud and 'game.gtimg.cn' not in hud

@@ -71,6 +71,10 @@ extern "C" long sjz_read(uint64_t address,void* out,size_t size) {
     if (!Memory::read(activeMemory,address,out,size)) return -1;
     return static_cast<long>(partial ? size-1 : size);
 }
+extern "C" long sjz_read_phase_fresh(uint64_t address,void* out,size_t size,
+                                     uint64_t*,size_t*,size_t) {
+    return sjz_read(address,out,size);
+}
 extern "C" long sjz_read_fresh_root(uint64_t address,void* out,size_t size,uint64_t*) {
     return sjz_read(address,out,size);
 }

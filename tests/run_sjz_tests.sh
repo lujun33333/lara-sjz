@@ -51,6 +51,16 @@ CXX="${CXX:-g++}"
     tests/sjz_collector_read_budget_test.cpp lara/kexploit/sjz/*.cpp -x c++ lara/kexploit/sjzesp.mm \
     -o "$OUT/sjz_collector_read_budget_test"
 "$OUT/sjz_collector_read_budget_test"
+"$CXX" -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer -pthread \
+    -Ilara/kexploit -Ilara/kexploit/sjz -Ilara/third_party/imgui \
+    tests/sjz_frame_pipeline_test.cpp lara/kexploit/sjz/*.cpp -x c++ lara/kexploit/sjzesp.mm \
+    -o "$OUT/sjz_frame_pipeline_test"
+"$OUT/sjz_frame_pipeline_test"
+"$CXX" -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
+    -Ilara/kexploit -Ilara/kexploit/sjz -Ilara/third_party/imgui \
+    tests/sjz_collector_live_test.cpp lara/kexploit/sjz/*.cpp -x c++ lara/kexploit/sjzesp.mm \
+    -o "$OUT/sjz_collector_live_test"
+"$OUT/sjz_collector_live_test"
 "$CXX" -std=c++17 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer \
     -Ilara/kexploit -Ilara/third_party/imgui tests/sjz_bulk_reads_test.cpp \
     lara/kexploit/sjz/OwnGameData.cpp lara/kexploit/sjz/OwnProjection.cpp \
@@ -67,9 +77,9 @@ printf 'PASS: cn head/chest/legs, trigger, zero endpoints, prediction and LOS fi
     tests/sjz_pending_touch_queue_test.cpp -o "$OUT/sjz_pending_touch_queue_test"
 "$OUT/sjz_pending_touch_queue_test"
 printf 'PASS: pending touch lifecycle\n'
-for test in sjzmem_partial sjz_hud_lifecycle_policy sjz_remote_call_cleanup_state sjz_page_cache_policy; do
+for test in sjzmem_partial sjz_hud_lifecycle_policy sjz_remote_call_cleanup_state sjz_page_cache_policy sjz_source_age_policy sjz_read_phase; do
     "${CC:-gcc}" -std=c11 -Wall -Wextra -Werror -Ilara/kexploit \
-        "tests/${test}_test.c" -o "$OUT/${test}_test"
+        "tests/${test}_test.c" -lm -o "$OUT/${test}_test"
     "$OUT/${test}_test"
     printf 'PASS: %s\n' "$test"
 done

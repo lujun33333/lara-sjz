@@ -255,4 +255,21 @@ int main() {
         assert(run(f,c,item,plan).status==SJZAimStatus::InvalidConfig);
         assert(f.readCalls==reads && plan.target==0);
     }
+    // Display projection validity must not stand in for world-skeleton validity.
+    Fixture publishedFixture;auto publishedConfig=config();auto publishedItem=target();
+    OwnWorldSkeleton worldBones;
+    assert(OwnReadCnSkeleton(publishedFixture.access().memory,actor,worldBones));
+    publishedItem.frameId=543;publishedItem.boneMask=3;
+    publishedItem.worldBoneMask=(1u<<SJZ_BONE_POINTS)-1u;
+    for(int i=0;i<SJZ_BONE_POINTS;++i) {
+        publishedItem.worldBoneX[i]=worldBones.points[i].x;
+        publishedItem.worldBoneY[i]=worldBones.points[i].y;
+        publishedItem.worldBoneZ[i]=worldBones.points[i].z;
+    }
+    auto publishedAccess=publishedFixture.access();publishedAccess.publishedFrame=543;
+    assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::PlanReady);
+    publishedItem.worldBoneMask&=~(1u<<17);
+    assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::NoTarget);
+    publishedItem.worldBoneMask=(1u<<SJZ_BONE_POINTS)-1u;publishedItem.frameId=544;
+    assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::NoTarget);
 }

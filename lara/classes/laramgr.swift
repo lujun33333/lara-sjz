@@ -602,6 +602,7 @@ final class laramgr: ObservableObject {
         guard !sjzRunning, !sjzAttached, !sjzTerminating, !sjzSceneDisconnecting else { return }
         sjzRunning=true
         sjzEpoch &+= 1
+        sjzesp_cancel_epoch(sjzEpoch)
         let epoch=sjzEpoch
         sjzStatus="正在连接三角洲行动"
         sjzWorker.async { [weak self] in
@@ -641,6 +642,7 @@ final class laramgr: ObservableObject {
         guard sjzAttached || sjzRunning || sjzTimer != nil else { return }
         sjzRunning = true
         sjzEpoch &+= 1
+        sjzesp_cancel_epoch(sjzEpoch)
         sjzTimer?.cancel()
         sjzTimer = nil
         sjzWorker.async { [weak self] in
@@ -760,16 +762,47 @@ final class laramgr: ObservableObject {
         let collectStarted = DispatchTime.now().uptimeNanoseconds
         let sourceStartedAt = CACurrentMediaTime()
         let count=items.withUnsafeMutableBufferPointer {
-            Int(sjzesp_tick(base,UInt32(width),UInt32(height),&config,$0.baseAddress,Int32($0.count)))
+            Int(sjzesp_collect(base,UInt32(width),UInt32(height),&config,$0.baseAddress,Int32($0.count),epoch))
         }
         let collectFinished = DispatchTime.now().uptimeNanoseconds
         let sourceFinishedAt = CACurrentMediaTime()
         let stats=sjzesp_stats()
         let status=String(cString:sjzesp_last_error())
+        let frameNumber=sjzTickNumber
+        let snapshot=Array(items.prefix(max(0,count)))
+        let publishQueuedAt = DispatchTime.now().uptimeNanoseconds
+        // The immutable snapshot and source times are committed before any aim work.
+        DispatchQueue.main.async {
+            guard epoch==self.sjzEpoch, self.sjzAttached else { return }
+            let queuedMs=Double(DispatchTime.now().uptimeNanoseconds-publishQueuedAt)/1_000_000
+            snapshot.withUnsafeBufferPointer {
+                sjzhud_update_sjz_snapshot_with_source_times(count>0 ? $0.baseAddress : nil,
+                    Int32(count),frameNumber,sourceStartedAt,sourceFinishedAt)
+            }
+            if count>0 || frameNumber%12==0 {
+                let postCollectMs=Double(publishQueuedAt-collectFinished)/1_000_000
+                self.logmsg("(sjz.publish) tick=\(frameNumber) count=\(count) postCollectMs=\(postCollectMs) queuedMs=\(queuedMs) beforeAim=1")
+            }
+            if stats.status==Int32(SJZ_STATUS_TRANSPORT) { self.sjzDetach() }
+        }
+        // Sample current UI controls after publication; this also observes detach/off.
+        var aimAllowed=false
+        DispatchQueue.main.sync {
+            guard epoch==self.sjzEpoch, self.sjzAttached,
+                  !self.sjzTerminating, !self.sjzSceneDisconnecting else { return }
+            sjzhud_copy_sjz_config(&config)
+            aimAllowed=true
+        }
+        if aimAllowed {
+            snapshot.withUnsafeBufferPointer {
+                sjzesp_aim(base,UInt32(width),UInt32(height),&config,$0.baseAddress,
+                    Int32(count),epoch,stats.sampleGeneration)
+            }
+        }
+        let aimStats=sjzesp_stats()
         let aimStatus=String(cString:sjzesp_last_aim_status())
         let aimEnabled=(config.flags & (1 << 11)) != 0
         let report=aimEnabled ? "\(status) · \(aimStatus)" : status
-        let frameNumber=sjzTickNumber
         let sampleTime=Int64(Date().timeIntervalSince1970 * 1000)
         let mainSyncMs = Double(mainReady-frameStarted) / 1_000_000
         let collectMs = Double(collectFinished-collectStarted) / 1_000_000
@@ -784,21 +817,12 @@ final class laramgr: ObservableObject {
             let actor=" rootSlot=\(stats.rootSlotValue) rootEdge=\(stats.rootFailureEdge) actorHeader=\(stats.actorHeaderStartData),\(stats.actorHeaderStartCount)->\(stats.actorHeaderEndData),\(stats.actorHeaderEndCount) scanned=\(stats.scannedActors) candidates=\(stats.candidatePlayers),\(stats.candidateLoot) classCache=\(stats.classCacheHits),\(stats.classCacheMisses) recheck=\(stats.actorRecheckReason) lootReject=\(stats.lootRejectPosition),\(stats.lootRejectProjection),\(stats.lootRejectDistance),\(stats.lootRejectContainer),\(stats.lootRejectData),\(stats.lootRejectLevelRead),\(stats.lootRejectLevelFilter) lootPriceReadFailures=\(stats.lootPriceReadFailures)"
             let camera=" roots=\(stats.worldIdentity),\(stats.levelIdentity),\(stats.pawnIdentity) camera=\(stats.cameraX),\(stats.cameraY),\(stats.cameraZ),\(stats.cameraPitch),\(stats.cameraYaw),\(stats.cameraRoll),\(stats.cameraFov) local=\(stats.localX),\(stats.localY),\(stats.localZ)"
             let target=" target=\(stats.firstTargetIdentity),\(stats.targetWorldX),\(stats.targetWorldY),\(stats.targetWorldZ),\(stats.targetScreenX),\(stats.targetScreenY),\(stats.targetDistance) aim=\(aimEnabled ? 1 : 0):\(aimStatus)"
-            let aim=" aimConfig=\(config.aimSpeed),\(config.aimRadius),\(config.aimTrigger),\(config.aimPart) aimCanWrite=\(stats.aimCanWrite) aimCode=\(stats.aimStatusCode),\(stats.aimWriteStatusCode) aimTarget=\(stats.aimTargetIdentity) aimCandidates=\(stats.aimRecords),\(stats.aimEligible),\(stats.aimBoneReject),\(stats.aimProjectionReject),\(stats.aimRadiusReject),\(stats.aimAccepted) phaseMs=\(stats.collectorMs),\(stats.aimPlanMs),\(stats.aimWriteMs)"
-            globallogger.log(state+actor+camera+target+aim)
+            let aim=" aimConfig=\(config.aimSpeed),\(config.aimRadius),\(config.aimTrigger),\(config.aimPart) aimCanWrite=\(aimStats.aimCanWrite) aimCode=\(aimStats.aimStatusCode),\(aimStats.aimWriteStatusCode) aimTarget=\(aimStats.aimTargetIdentity) aimCandidates=\(aimStats.aimRecords),\(aimStats.aimEligible),\(aimStats.aimBoneReject),\(aimStats.aimProjectionReject),\(aimStats.aimRadiusReject),\(aimStats.aimAccepted) phaseMs=\(stats.collectorMs),\(aimStats.aimPlanMs),\(aimStats.aimWriteMs) aimBudget=\(aimStats.aimMaxReadMs),\(aimStats.aimBudgetOvershootMs),\(aimStats.aimSourceAgeMs),\(aimStats.aimTokenReject)"
+            let live=" liveBudget=\(stats.liveHotCalls),\(stats.liveIndexCalls),\(stats.liveBudgetYields),\(stats.liveIndexActors),\(stats.liveIndexedCount),\(stats.liveSingleReadMaxMs) liveOvershootMs=\(stats.liveBudgetOvershootMs) liveOverAgeDrops=\(stats.liveOverAgeDrops)"
+            globallogger.log(state+actor+camera+target+aim+live)
         }
-        let publishQueuedAt = DispatchTime.now().uptimeNanoseconds
         DispatchQueue.main.async {
             guard epoch==self.sjzEpoch, self.sjzAttached else { return }
-            let queuedMs = Double(DispatchTime.now().uptimeNanoseconds-publishQueuedAt) / 1_000_000
-            items.withUnsafeBufferPointer {
-                sjzhud_update_sjz_snapshot_with_source_times(count>0 ? $0.baseAddress : nil,
-                    Int32(count), frameNumber, sourceStartedAt, sourceFinishedAt)
-            }
-            if traceFrame {
-                let postCollectMs = Double(publishQueuedAt-collectFinished) / 1_000_000
-                self.logmsg("(sjz.publish) tick=\(frameNumber) count=\(count) postCollectMs=\(postCollectMs) queuedMs=\(queuedMs)")
-            }
             self.sjzStatus=report
             self.sjzChainDiagnostic="人物 \(stats.playerCount) · 物资 \(stats.lootCount) · 读取失败 \(stats.readFailures)" +
                 (aimEnabled ? " · \(aimStatus)" : "")
@@ -807,7 +831,6 @@ final class laramgr: ObservableObject {
                 self.logmsg("(sjz.collect) \(status)")
             }
             self.updateGameHUD(report)
-            if stats.status==Int32(SJZ_STATUS_TRANSPORT) { self.sjzDetach() }
         }
     }
 
@@ -1079,6 +1102,7 @@ final class laramgr: ObservableObject {
         sjzLaunchPending = false
         sjzLaunchEpoch &+= 1
         sjzEpoch &+= 1
+        sjzesp_cancel_epoch(sjzEpoch)
         sjzTimer?.cancel()
         sjzTimer = nil
         sjzHostingRequests.removeAll()
@@ -1118,6 +1142,7 @@ final class laramgr: ObservableObject {
         sjzLaunchPending = false
         sjzLaunchEpoch &+= 1
         sjzEpoch &+= 1
+        sjzesp_cancel_epoch(sjzEpoch)
         sjzTimer?.cancel()
         sjzTimer = nil
         sjzHostingRequests.removeAll()
