@@ -1,4 +1,5 @@
 #include "../lara/kexploit/sjz/SJZHUDLifecyclePolicy.h"
+#include "../lara/kexploit/sjz/SJZHUDSourceAgePolicy.h"
 #include "../lara/kexploit/SJZHUDBridge.h"
 
 #include <assert.h>
@@ -14,6 +15,18 @@ static void verify_outcome(bool menu, bool draw, bool ready)
 
 int main(void)
 {
+    // A slow source is rejected on delivery, even though receipt age is zero.
+    assert(!sjzhud_source_fresh(10, 12, 12.001, 12.001, .45));
+    assert(sjzhud_source_fresh(10, 10.1, 10.2, 10.44, .45));
+    assert(!sjzhud_source_fresh(10, 10.1, 10.2, 10.46, .45));
+    // Main-queue delay also consumes the original source lifetime.
+    assert(!sjzhud_source_fresh(10, 10.1, 10.5, 10.5, .45));
+    assert(!sjzhud_source_fresh(10, 9, 11, 11, .45));
+    assert(!sjzhud_source_fresh(10, 11, 10.5, 10.5, .45));
+    assert(!sjzhud_source_fresh(NAN, 10, 10, 10, .45));
+    assert(!sjzhud_source_fresh(10, INFINITY, 10, 10, .45));
+    assert(!sjzhud_source_fresh(10, 10.1, 10.2, 10.19, .45));
+    assert(!sjzhud_source_fresh(0, 0, 0, 0, .45));
     const bool applicationEvents[] = {true, false, false, true, false, true};
     const sjzhud_render_backend_t expectedBackends[] = {
         SJZHUDRenderBackendMetal,

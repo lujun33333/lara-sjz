@@ -13,6 +13,9 @@
 
 struct Memory {
     std::map<uintptr_t,unsigned char> bytes;
+    std::map<std::pair<uint32_t,std::string>,uint32_t> nameIndexes;
+    std::map<uint32_t,std::string> usedNameIndexes;
+    uint32_t nextNameIndex=4096;
     uintptr_t fail=0, mutate=0;
     int actorReads=0;
     bool changing=false;
@@ -64,10 +67,11 @@ constexpr uintptr_t base=0x100000000,world=0x200000000,driver=world+0x10000,
     weapon=configData+0x10000,board=weapon+0x10000;
 Memory* activeMemory=nullptr;
 bool transportReady=true,partial=false;
+int invalidations=0;
 extern "C" bool sjz_transport_ready(void) { return transportReady; }
 extern "C" bool sjz_transport_can_write(void) { return false; }
 extern "C" long sjz_write(uint64_t,const void*,size_t) { assert(false); return -1; }
-extern "C" void sjz_invalidate_read_cache(void) {}
+extern "C" void sjz_invalidate_read_cache(void) { ++invalidations; }
 extern "C" uint64_t sjz_session_generation(void) { return 1; }
 extern "C" uint64_t sjz_find_image_base(const uint8_t uuid[16],uint32_t type) {
     static const uint8_t mainUUID[16]={0xe6,0x4c,0x78,0x9b,0x63,0xad,0x34,0xc9,
@@ -83,6 +87,13 @@ extern "C" long sjz_read_fresh_root(uint64_t address,void* out,size_t size,uint6
 }
 
 void name(Memory& m,uintptr_t object,uint32_t index,const std::string& text) {
+    const auto key=std::make_pair(index,text);
+    auto found=m.nameIndexes.find(key);
+    if(found!=m.nameIndexes.end()) index=found->second;
+    else {
+        if(m.usedNameIndexes.count(index)) { index=m.nextNameIndex; m.nextNameIndex+=128; }
+        m.nameIndexes[key]=index; m.usedNameIndexes[index]=text;
+    }
     m.put(object+0x1c,index);
     auto entry=nameBlock+size_t(index)*2;
     m.put(entry,uint16_t(text.size()<<6));
@@ -139,6 +150,15 @@ int main() {
     assert(std::string(output[0].name)=="[2] 测试玩家");
     assert(std::abs(output[0].x-500)<.01f && std::abs(output[0].distance-10)<.01f);
     assert(output[0].boneMask==0x3ffff && output[0].health==100);
+    const auto savedConfig=config;
+    config.flags|=SJZ_AIM_ENABLED;config.aimSpeed=0;
+    invalidations=0;
+    assert(collect()==1 && invalidations==0 && sjzesp_stats().aimRecords==0);
+    assert(std::strstr(sjzesp_last_aim_status(),"速度、范围为零"));
+    config.aimSpeed=.5f;config.aimRadius=0;
+    assert(collect()==1 && invalidations==0);
+    config=savedConfig;
+    assert(collect()==1);
     const auto firstSample=sjzesp_stats();
     assert(firstSample.stage==SJZ_STAGE_NONE && firstSample.sampleMask==
            (SJZ_SAMPLE_ROOTS|SJZ_SAMPLE_CAMERA|SJZ_SAMPLE_LOCAL|SJZ_SAMPLE_TARGET));
@@ -312,7 +332,9 @@ int main() {
     m.put(configData+0x68,int32_t(6)); config.lootLevel=6;
     assert(collect()==2 && output[1].level==6);
     m.put(configData+0x68,int32_t(4)); config.lootLevel=3;
-    m.put(nameBlock+600*2,uint16_t(0));
+    // FName pool entries are immutable; test a new invalid name identity.
+    m.put(pickup+0x1c,uint32_t(30000));
+    m.put(nameBlock+30000*2,uint16_t(0));
     assert(collect()==1 && sjzesp_stats().candidateLoot==1); // Name eligibility is required.
     name(m,pickup,600,"InventoryPickup_Test");
     const uintptr_t deadClass=pickupClass+0x5000;
@@ -341,6 +363,7 @@ int main() {
     m.put(level+0x98,OwnArrayHeader{list,6,6});
     const uintptr_t repeatedActors[]={unrelated1,unrelated2,actor,player2,pickup,pickup2};
     m.raw(list,repeatedActors,sizeof(repeatedActors));
+    sjzesp_reset(); // Start a fresh name/class cache generation for cold-read counts.
     m.readCounts.clear();
     assert(collect()==4);
     assert(sjzesp_stats().scannedActors==6 && sjzesp_stats().candidatePlayers==2 &&
@@ -373,7 +396,8 @@ int main() {
     m.readCounts.clear();
     assert(collect()==4 && output[0].identity==unrelated2 &&
            sjzesp_stats().candidatePlayers==3);
-    assert(m.readCounts[nameBlock+500*2]==2); // Second actor must retry class resolution.
+    assert(m.readCounts[unrelatedClass+0x40]==2); // Incomplete parent resolution must retry.
+    assert(m.readCounts[nameBlock+500*2]==1); // A successful immutable name remains reusable.
     m.put(unrelatedClass+0x40,uintptr_t(0));
     m.put(level+0x98,OwnArrayHeader{list,2,2}); m.put(list,actor); m.put(list+8,pickup);
     assert(sjzesp_tick(base,1000,500,&config,output,1)==1);

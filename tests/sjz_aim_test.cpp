@@ -195,7 +195,9 @@ int main() {
     }
     c.aimPart=0;
     f.bytes.erase(bones+5*0x30+0x10);
-    assert(run(f,c,item,plan).status==SJZAimStatus::NoTarget);
+    const auto missingBone=run(f,c,item,plan);
+    assert(missingBone.status==SJZAimStatus::NoTarget);
+    assert(missingBone.records==1 && missingBone.eligible==1 && missingBone.boneReject==1);
     assert(plan.target==0); // Missing mesh point must not fall back to actor/root.
     f.put(bones+5*0x30+0x10,OwnVector3{1000,0,0});
     item.bot=1;

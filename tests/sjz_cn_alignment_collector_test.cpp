@@ -12,6 +12,9 @@
 
 struct Memory {
     std::map<uintptr_t,unsigned char> bytes;
+    std::map<std::pair<uint32_t,std::string>,uint32_t> nameIndexes;
+    std::map<uint32_t,std::string> usedNameIndexes;
+    uint32_t nextNameIndex=4096;
     uintptr_t fail=0, mutate=0, deathFlip=0;
     int actorReads=0,deathReads=0;
     bool changing=false;
@@ -73,6 +76,13 @@ extern "C" long sjz_read_fresh_root(uint64_t address,void* out,size_t size,uint6
 }
 
 void name(Memory& m,uintptr_t object,uint32_t index,const std::string& text) {
+    const auto key=std::make_pair(index,text);
+    auto found=m.nameIndexes.find(key);
+    if(found!=m.nameIndexes.end()) index=found->second;
+    else {
+        if(m.usedNameIndexes.count(index)) { index=m.nextNameIndex; m.nextNameIndex+=128; }
+        m.nameIndexes[key]=index; m.usedNameIndexes[index]=text;
+    }
     m.put(object+0x1c,index);
     auto entry=nameBlock+size_t(index)*2;
     m.put(entry,uint16_t(text.size()<<6));
@@ -302,7 +312,8 @@ int main() {
     name(m,pickup,500,"InventoryPickup_001");
     m.put(pickup+0x18,uint32_t(0x18000)); assert(collect()==1);
     m.put(pickup+0x18,uint32_t(0));
-    m.put(nameBlock+size_t(500)*2,uint16_t((19<<6)|1)); assert(collect()==1);
+    m.put(pickup+0x1c,uint32_t(30000));
+    m.put(nameBlock+size_t(30000)*2,uint16_t((19<<6)|1)); assert(collect()==1);
     name(m,pickup,500,"InventoryPickup_001");
     m.put(configData+0xdc,int32_t(-1));
     assert(collect()==2 && output[1].price==-1); // Nonpositive price still displays distance.

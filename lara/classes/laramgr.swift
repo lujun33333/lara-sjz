@@ -11,6 +11,7 @@ import Foundation
 import Darwin
 import notify
 import UIKit
+import QuartzCore
 import WebKit
 
 private let sjzHUDActionHandler: @convention(c) (Int32) -> Void = { action in
@@ -757,10 +758,12 @@ final class laramgr: ObservableObject {
         }
         var items=[sjzesp_item_t](repeating:sjzesp_item_t(),count:Int(SJZ_MAX_ITEMS))
         let collectStarted = DispatchTime.now().uptimeNanoseconds
+        let sourceStartedAt = CACurrentMediaTime()
         let count=items.withUnsafeMutableBufferPointer {
             Int(sjzesp_tick(base,UInt32(width),UInt32(height),&config,$0.baseAddress,Int32($0.count)))
         }
         let collectFinished = DispatchTime.now().uptimeNanoseconds
+        let sourceFinishedAt = CACurrentMediaTime()
         let stats=sjzesp_stats()
         let status=String(cString:sjzesp_last_error())
         let aimStatus=String(cString:sjzesp_last_aim_status())
@@ -781,15 +784,16 @@ final class laramgr: ObservableObject {
             let actor=" rootSlot=\(stats.rootSlotValue) rootEdge=\(stats.rootFailureEdge) actorHeader=\(stats.actorHeaderStartData),\(stats.actorHeaderStartCount)->\(stats.actorHeaderEndData),\(stats.actorHeaderEndCount) scanned=\(stats.scannedActors) candidates=\(stats.candidatePlayers),\(stats.candidateLoot) classCache=\(stats.classCacheHits),\(stats.classCacheMisses) recheck=\(stats.actorRecheckReason) lootReject=\(stats.lootRejectPosition),\(stats.lootRejectProjection),\(stats.lootRejectDistance),\(stats.lootRejectContainer),\(stats.lootRejectData),\(stats.lootRejectLevelRead),\(stats.lootRejectLevelFilter) lootPriceReadFailures=\(stats.lootPriceReadFailures)"
             let camera=" roots=\(stats.worldIdentity),\(stats.levelIdentity),\(stats.pawnIdentity) camera=\(stats.cameraX),\(stats.cameraY),\(stats.cameraZ),\(stats.cameraPitch),\(stats.cameraYaw),\(stats.cameraRoll),\(stats.cameraFov) local=\(stats.localX),\(stats.localY),\(stats.localZ)"
             let target=" target=\(stats.firstTargetIdentity),\(stats.targetWorldX),\(stats.targetWorldY),\(stats.targetWorldZ),\(stats.targetScreenX),\(stats.targetScreenY),\(stats.targetDistance) aim=\(aimEnabled ? 1 : 0):\(aimStatus)"
-            globallogger.log(state+actor+camera+target)
+            let aim=" aimConfig=\(config.aimSpeed),\(config.aimRadius),\(config.aimTrigger),\(config.aimPart) aimCanWrite=\(stats.aimCanWrite) aimCode=\(stats.aimStatusCode),\(stats.aimWriteStatusCode) aimTarget=\(stats.aimTargetIdentity) aimCandidates=\(stats.aimRecords),\(stats.aimEligible),\(stats.aimBoneReject),\(stats.aimProjectionReject),\(stats.aimRadiusReject),\(stats.aimAccepted) phaseMs=\(stats.collectorMs),\(stats.aimPlanMs),\(stats.aimWriteMs)"
+            globallogger.log(state+actor+camera+target+aim)
         }
         let publishQueuedAt = DispatchTime.now().uptimeNanoseconds
         DispatchQueue.main.async {
             guard epoch==self.sjzEpoch, self.sjzAttached else { return }
             let queuedMs = Double(DispatchTime.now().uptimeNanoseconds-publishQueuedAt) / 1_000_000
             items.withUnsafeBufferPointer {
-                sjzhud_update_sjz_snapshot_with_tick(count>0 ? $0.baseAddress : nil,
-                                                     Int32(count), frameNumber)
+                sjzhud_update_sjz_snapshot_with_source_times(count>0 ? $0.baseAddress : nil,
+                    Int32(count), frameNumber, sourceStartedAt, sourceFinishedAt)
             }
             if traceFrame {
                 let postCollectMs = Double(publishQueuedAt-collectFinished) / 1_000_000
