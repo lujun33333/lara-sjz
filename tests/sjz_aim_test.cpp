@@ -259,7 +259,8 @@ int main() {
     Fixture publishedFixture;auto publishedConfig=config();auto publishedItem=target();
     OwnWorldSkeleton worldBones;
     assert(OwnReadCnSkeleton(publishedFixture.access().memory,actor,worldBones));
-    publishedItem.frameId=543;publishedItem.boneMask=3;
+    publishedItem.frameId=543;publishedItem.publicationFrame=543;
+    publishedItem.sampleAgeMs=0;publishedItem.boneMask=3;
     publishedItem.worldBoneMask=(1u<<SJZ_BONE_POINTS)-1u;
     for(int i=0;i<SJZ_BONE_POINTS;++i) {
         publishedItem.worldBoneX[i]=worldBones.points[i].x;
@@ -268,6 +269,11 @@ int main() {
     }
     auto publishedAccess=publishedFixture.access();publishedAccess.publishedFrame=543;
     assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::PlanReady);
+    publishedItem.publicationFrame=542;
+    assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::NoTarget);
+    publishedItem.publicationFrame=543;publishedItem.sampleAgeMs=201;
+    assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::NoTarget);
+    publishedItem.sampleAgeMs=0;
     publishedItem.worldBoneMask&=~(1u<<17);
     assert(SJZPlanAim(publishedAccess,image,publishedConfig,&publishedItem,1,1000,500,plan).status==SJZAimStatus::NoTarget);
     publishedItem.worldBoneMask=(1u<<SJZ_BONE_POINTS)-1u;publishedItem.frameId=544;

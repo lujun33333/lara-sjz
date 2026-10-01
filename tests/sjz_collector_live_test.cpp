@@ -17,11 +17,14 @@ struct LiveMemory {
     double entityCost=0;
     double startupCost=0;
     int rootReads=0;
+    uintptr_t extraRead=0;
+    double extraReadCost=0;
     static double clock(void* context) {return static_cast<LiveMemory*>(context)->now;}
     static bool read(void* context,uintptr_t address,void* output,size_t size) {
         auto& self=*static_cast<LiveMemory*>(context);++self.calls;
         self.now+=address>=nameBlock && address<nameBlock+0x10000 ? self.nameCost:self.cost;
         if(self.costlyReads.count(address)) self.now+=self.entityCost;
+        if(address==self.extraRead) self.now+=self.extraReadCost;
         if(address==base+0x178b44e0 && ++self.rootReads<=2) self.now+=self.startupCost/2;
         if(address==actor+8 && size==0x3d8-8 && ++self.prefixes==2 && self.changeMesh)
             self.memory.put(actor+0x3d0,mesh+0x5000);
@@ -43,6 +46,7 @@ struct LiveMemory {
     void reset(int change=0) {headers=0;prefixes=0;rootReads=0;mutation=change;calls=0;}
 };
 
+#ifndef SJZ_LIVE_FIXTURE_ONLY
 int main() {
     LiveMemory target;
     SJZCollector collector({&target,LiveMemory::read},base);
@@ -167,7 +171,8 @@ int main() {
             fair.memory.put(list+size_t(i)*8,players+uintptr_t((i+frame*3)%playerCount)*0x4000);
         fair.reset();const int n=rotating.collectLive(config,1000,500,output,16);
         for(int i=0;i<n;++i) {
-            assert(output[i].frameId==rotating.stats.sampleGeneration);
+            assert(output[i].publicationFrame==rotating.stats.sampleGeneration &&
+                   output[i].frameId<=rotating.stats.sampleGeneration && output[i].sampleAgeMs<=450);
             seen.insert(output[i].identity);
         }
         assert(rotating.liveMetrics().elapsedMs<200);
@@ -184,3 +189,4 @@ int main() {
     assert(adaptation.liveMetrics().elapsedMs<200); // No cache reset is needed to recover.
     std::cout<<"PASS: live hot/index split, fresh pose, membership changes, root/identity invalidation, budget resume and missing-page retry\n";
 }
+#endif

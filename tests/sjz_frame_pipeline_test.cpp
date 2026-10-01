@@ -143,7 +143,11 @@ int main() {
     cancelledWithoutWrite(config,true,false);
     cancelledWithoutWrite(config,false,true);
 
-    count=collect();assert(count==1);
+    // Detach advanced the epoch and cleared the display/discovery cache.
+    // The new scene must finish bounded discovery before publishing again.
+    count=0;
+    for(int i=0;i<8 && !count;++i) count=collect();
+    assert(count==1);
     const uint64_t detachToken=sjzesp_stats().sampleGeneration;
     const uint64_t oldEpoch=epoch;
     const int beforeDetachWrite=writeCalls;
